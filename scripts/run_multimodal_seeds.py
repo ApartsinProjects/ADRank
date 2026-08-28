@@ -1,13 +1,18 @@
-"""Multi-seed cross-modality run for confidence intervals.
+"""Multi-seed cross-modality run for confidence intervals (resilient version).
 
-Runs seeds 1..4 (seed 0 already exists) for TS, CV, NLP using the ensemble
-default (smallest+random cluster selection, K=30, M=20, 9 detectors no OCSVM).
-Sequential across modalities to avoid CPU oversubscription; parallel across
-(dataset, seed) within each modality.
+Runs seeds 1..4 (seed 0 already exists) for TS, CV, NLP using each modality's
+seed-0 config (TS/CV: smallest+random ensemble; NLP: smallest only).
 
-Outputs, one per modality, appended to the existing seed-0 parquet:
-  results/raw/pseudo_{cv,nlp,ts}_seeds.parquet
-  results/raw/true_{cv,nlp,ts}_seeds.parquet
+Resilience (learned from a worker OOM/crash on the first attempt):
+  - process ONE dataset at a time, writing a per-dataset parquet
+  - n_jobs=2 (not 4) to halve peak memory on 512/768-dim embeddings
+  - idempotent: skip a dataset whose per-dataset parquet already exists
+  - catch a worker crash (TerminatedWorkerError) per dataset and skip it,
+    so one bad cell cannot kill the whole run; re-running picks up the rest
+
+Per-dataset outputs land in results/raw/seeds_parts/{tag}/{dataset}.parquet ;
+a final pass concatenates them to results/raw/pseudo_{tag}_seeds.parquet and
+true_{tag}_seeds.parquet.
 """
 from __future__ import annotations
 
@@ -31,6 +36,7 @@ warnings.filterwarnings("ignore")
 
 SEEDS = [1, 2, 3, 4]
 RAW = os.path.join(ROOT, "results", "raw")
+PARTS = os.path.join(RAW, "seeds_parts")
 
 
 def _pseudo(ds, seed, selections):
@@ -50,25 +56,41 @@ def _true(ds, seed):
 
 
 def run_modality(tag, datasets, selections):
+    outdir = os.path.join(PARTS, tag)
+    os.makedirs(outdir, exist_ok=True)
     print(f"\n[{tag}] {len(datasets)} datasets x {len(SEEDS)} new seeds, sel={selections}", flush=True)
-    t0 = time.time()
-    true_dfs = Parallel(n_jobs=4)(
-        delayed(_true)(ds, s) for ds in datasets for s in SEEDS
-    )
-    pd.concat(true_dfs, ignore_index=True).to_parquet(os.path.join(RAW, f"true_{tag}_seeds.parquet"))
-    print(f"[{tag}] true done in {time.time()-t0:.0f}s", flush=True)
 
-    t0 = time.time()
-    pseudo_dfs = Parallel(n_jobs=4)(
-        delayed(_pseudo)(ds, s, selections) for ds in datasets for s in SEEDS
-    )
-    pd.concat(pseudo_dfs, ignore_index=True).to_parquet(os.path.join(RAW, f"pseudo_{tag}_seeds.parquet"))
-    print(f"[{tag}] pseudo done in {time.time()-t0:.0f}s", flush=True)
+    for ds in datasets:
+        p_part = os.path.join(outdir, f"pseudo_{ds.name}.parquet")
+        t_part = os.path.join(outdir, f"true_{ds.name}.parquet")
+        if os.path.exists(p_part) and os.path.exists(t_part):
+            print(f"  [{tag}] skip {ds.name} (cached)", flush=True)
+            continue
+        t0 = time.time()
+        try:
+            true_dfs = Parallel(n_jobs=2)(delayed(_true)(ds, s) for s in SEEDS)
+            pseudo_dfs = Parallel(n_jobs=2)(delayed(_pseudo)(ds, s, selections) for s in SEEDS)
+            pd.concat(true_dfs, ignore_index=True).to_parquet(t_part)
+            pd.concat(pseudo_dfs, ignore_index=True).to_parquet(p_part)
+            print(f"  [{tag}] {ds.name} done in {time.time()-t0:.0f}s", flush=True)
+        except Exception as e:
+            print(f"  [{tag}] {ds.name} FAILED ({type(e).__name__}: {e}); skipping", flush=True)
+
+    # concatenate all present parts
+    p_all, t_all = [], []
+    for fn in os.listdir(outdir):
+        full = os.path.join(outdir, fn)
+        if fn.startswith("pseudo_"):
+            p_all.append(pd.read_parquet(full))
+        elif fn.startswith("true_"):
+            t_all.append(pd.read_parquet(full))
+    if p_all:
+        pd.concat(p_all, ignore_index=True).to_parquet(os.path.join(RAW, f"pseudo_{tag}_seeds.parquet"))
+        pd.concat(t_all, ignore_index=True).to_parquet(os.path.join(RAW, f"true_{tag}_seeds.parquet"))
+        print(f"[{tag}] concatenated {len(p_all)} datasets -> pseudo_{tag}_seeds.parquet", flush=True)
 
 
 def main():
-    # config per modality matches each one's seed-0 config:
-    #   TS, CV -> smallest+random ensemble; NLP -> smallest only (random too costly on 10k-row sets)
     run_modality("ts", load_synthetic_ts(seed=0), ["smallest", "random"])
     run_modality("cv", load_npz_dir(os.path.join(ROOT, "data", "cv")), ["smallest", "random"])
     run_modality("nlp", load_npz_dir(os.path.join(ROOT, "data", "nlp")), ["smallest"])
