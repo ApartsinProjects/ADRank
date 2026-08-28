@@ -1,0 +1,19 @@
+# Large downloaded benchmark data (re-fetch with scripts/fetch_*.py)
+data/adbench/
+data/cv/
+data/nlp/
+
+# Heavy intermediate parquet caches (regenerate with scripts/run_*.py)
+results/raw/*.parquet
+results/raw/_tmp_*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Scratch
+*.log
+
+# Editor/session
+.claude/

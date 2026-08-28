@@ -1,0 +1,5 @@
+modality,n_datasets,rho_all_mean,rho_all_median,top1_all,top3_all,n_spread10,rho_spread10_mean,rho_spread10_median,top1_spread10,top3_spread10
+tabular,26,0.494,0.639,0.346,0.603,18,0.603,0.717,0.389,0.685
+cv,20,0.714,0.792,0.5,0.817,13,0.725,0.817,0.615,0.821
+nlp,13,0.445,0.517,0.308,0.615,6,0.678,0.75,0.5,0.778
+ts,10,0.474,0.59,0.0,0.4,4,0.614,0.597,0.0,0.333

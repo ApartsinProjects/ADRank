@@ -1,0 +1,4 @@
+aggregation,spearman_rho,kendall_tau,top1_hit,top3_hit_ratio
+borda,0.657,0.579,0.2,0.267
+mean,0.653,0.583,0.2,0.333
+varweight,0.653,0.583,0.2,0.333
