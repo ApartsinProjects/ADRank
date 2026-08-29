@@ -58,6 +58,13 @@ figcaption{font-size:9.5pt;color:var(--fg-soft);text-align:justify;text-justify:
 .references p{padding-left:1.7rem;text-indent:-1.7rem;margin:0 0 .55rem;text-align:left;overflow-wrap:anywhere;font-feature-settings:"tnum"}
 .references p::before{counter-increment:ref;content:counter(ref) ". ";color:var(--muted)}
 .references a{overflow-wrap:anywhere}
+.docxlinks{position:fixed;top:1rem;right:1rem;display:flex;flex-direction:column;gap:.4rem;align-items:flex-end;z-index:10}
+.docxlink{font-family:var(--font-body);font-size:10pt;font-weight:600;padding:.4rem .85rem;
+  border:1px solid var(--accent);color:var(--accent);background:var(--bg);text-decoration:none;
+  border-radius:3px;letter-spacing:.01em;white-space:nowrap;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.docxlink:hover{background:var(--accent);color:var(--bg);text-decoration:none;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+@media print{.docxlinks{display:none}}
+@media (max-width:900px){.docxlinks{position:static;flex-direction:row;justify-content:flex-end;margin:0 0 1rem}}
 footer{margin-top:3rem;padding-top:.9rem;border-top:.5px solid var(--rule);font-size:9pt;color:var(--muted);text-align:center;font-family:var(--font-body)}
 @media print{
   body{max-width:none;font-size:10pt;padding:0;color:#000}
@@ -79,10 +86,32 @@ KATEX = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.
   onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\\\(',right:'\\\\)',display:false},{left:'\\\\[',right:'\\\\]',display:true}]});"></script>"""
 
 
+import re as _re
+
+def _protect_math(md):
+    """Replace $$...$$ and $...$ spans with placeholder tokens so the markdown
+    processor cannot mangle underscores/asterisks inside math. Returns (text, store)."""
+    store = []
+    def stash(m):
+        store.append(m.group(0))
+        return f"\x00MATH{len(store)-1}\x00"
+    # display first (greedy-safe, non-nested), then inline (not $$-adjacent)
+    md = _re.sub(r"\$\$.+?\$\$", stash, md, flags=_re.DOTALL)
+    md = _re.sub(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", stash, md, flags=_re.DOTALL)
+    return md, store
+
+def _restore_math(html, store):
+    for i, raw in enumerate(store):
+        html = html.replace(f"\x00MATH{i}\x00", raw)
+    return html
+
+
 def build(src, out, title):
     md = Path(src).read_text(encoding="utf-8")
+    md, math_store = _protect_math(md)
     html = markdown.markdown(md, extensions=["tables", "fenced_code", "toc", "sane_lists",
                                              "attr_list", "md_in_html"])
+    html = _restore_math(html, math_store)
     page = (f'<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             f'<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
             f'<title>{title}</title>\n{KATEX}\n<style>{STYLE}</style>\n</head>\n<body>\n'
