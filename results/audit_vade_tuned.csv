@@ -1,0 +1,5 @@
+dataset,config,regret,effK
+Annthyroid,kmeans,0.0897506339213966,
+Annthyroid,vade_default,0.12081420211089439,15.5
+Annthyroid,vade_joint150,0.12081420211089439,15.5
+Annthyroid,vade_protectclust,0.12081420211089439,10.5
