@@ -86,6 +86,12 @@ KATEX = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.
   onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\\\(',right:'\\\\)',display:false},{left:'\\\\[',right:'\\\\]',display:true}]});"></script>"""
 
 
+DOCXLINKS = """<div class="docxlinks">
+<a class="docxlink" href="adrank.pdf" download>&#8595; PDF</a>
+<a class="docxlink" href="adrank.docx" download>&#8595; Word (.docx)</a>
+</div>
+"""
+
 import re as _re
 
 def _protect_math(md):
@@ -115,7 +121,7 @@ def build(src, out, title):
     page = (f'<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             f'<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
             f'<title>{title}</title>\n{KATEX}\n<style>{STYLE}</style>\n</head>\n<body>\n'
-            f'{html}\n<footer>ADRank v1 · {title}</footer>\n</body>\n</html>\n')
+            f'{DOCXLINKS}{html}\n<footer>ADRank v1 · {title}</footer>\n</body>\n</html>\n')
     outp = Path(out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(page, encoding="utf-8")
