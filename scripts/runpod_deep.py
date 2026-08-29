@@ -1,3 +1,19 @@
+"""Self-contained RunPod deep-detector regime sweep for ADRank.
+Fetches ADBench Classical/CV/NLP from GitHub, generates synthetic TS, runs the
+six-regime bank with an 11-detector panel (incl. AutoEncoder + DeepSVDD on GPU),
+3 seeds, and writes results/modal_{true,pseudo}_deep.parquet.
+"""
+from __future__ import annotations
+
+import os
+os.environ.setdefault("ADRANK_EXCLUDE_DETECTORS","OCSVM")
+os.environ.setdefault("ADRANK_DEEP","1")
+import sys, io, time, urllib.request
+import torch
+assert torch.cuda.is_available(), "CUDA not available. This job requires a GPU."
+print(f"[train] GPU: {torch.cuda.get_device_name(0)}"); sys.stdout.flush()
+
+# ===== inlined pipeline.py =====
 """ADRank v1 pipeline.
 
 Single-file implementation of:
@@ -13,7 +29,6 @@ Labels y are read from the loaders solely to compute the ground-truth ranking
 inside `true_rank_from_labels`. Nowhere else in the pipeline is y consumed.
 """
 
-from __future__ import annotations
 
 import os
 import warnings
@@ -166,11 +181,11 @@ def _detector_factory(n_features: Optional[int] = None) -> Dict[str, Callable[[]
         from pyod.models.auto_encoder import AutoEncoder
         from pyod.models.deep_svdd import DeepSVDD
         factory["AutoEncoder"] = lambda: AutoEncoder(
-            epoch_num=30, batch_size=256, lr=1e-3, random_state=SEED, verbose=0)
+            epoch_num=15, batch_size=256, lr=1e-3, random_state=SEED, verbose=0)
         # DeepSVDD requires the feature count at construction time.
         if n_features is not None:
             factory["DeepSVDD"] = lambda: DeepSVDD(
-                n_features=n_features, use_ae=False, epochs=30, batch_size=256,
+                n_features=n_features, use_ae=False, epochs=15, batch_size=256,
                 random_state=SEED, verbose=0)
     return factory
 
@@ -591,3 +606,308 @@ def correlate_ranks(true_df: pd.DataFrame, agg_df: pd.DataFrame) -> pd.DataFrame
             "note": note,
         })
     return pd.DataFrame(rows)
+
+# ===== inlined ts.py =====
+"""Time-series adapter for ADRank.
+
+Generate synthetic univariate time series with labeled anomaly regions, extract
+sliding-window features to a tabular X matrix, and export as Dataset objects
+that plug directly into the existing pipeline.
+
+Ten series cover the standard anomaly types: point (spike / dip), contextual
+(normal value in the wrong regime), subsequence (unusual short pattern), trend
+change, amplitude change, frequency shift. All univariate for v1.
+"""
+
+from dataclasses import dataclass
+from typing import List, Tuple
+
+import numpy as np
+
+# Dataset provided by inlined pipeline above
+
+
+def _base_seasonal(n, seed):
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    x = np.sin(2 * np.pi * t / 50) + 0.3 * np.sin(2 * np.pi * t / 17)
+    x += rng.normal(0, 0.1, size=n)
+    return x
+
+
+def _inject_point_spikes(x, n_anom, seed):
+    rng = np.random.default_rng(seed + 1)
+    labels = np.zeros(len(x), dtype=int)
+    idx = rng.choice(len(x), size=n_anom, replace=False)
+    x = x.copy()
+    x[idx] += rng.choice([-1, 1], size=n_anom) * (3 + rng.random(n_anom) * 2)
+    labels[idx] = 1
+    return x, labels
+
+
+def _inject_subseq(x, n_anom_regions, region_len, seed):
+    rng = np.random.default_rng(seed + 2)
+    labels = np.zeros(len(x), dtype=int)
+    x = x.copy()
+    for _ in range(n_anom_regions):
+        start = rng.integers(0, len(x) - region_len)
+        # inject a burst of higher-frequency noise
+        x[start:start + region_len] += rng.normal(0, 1.5, size=region_len)
+        labels[start:start + region_len] = 1
+    return x, labels
+
+
+def _inject_trend(x, seed):
+    rng = np.random.default_rng(seed + 3)
+    labels = np.zeros(len(x), dtype=int)
+    x = x.copy()
+    # trend anomaly: a segment where the series drifts upward
+    start = rng.integers(len(x) // 3, 2 * len(x) // 3)
+    length = 500
+    trend = np.linspace(0, 3, length)
+    x[start:start + length] += trend
+    labels[start:start + length] = 1
+    return x, labels
+
+
+def _inject_amplitude(x, seed):
+    rng = np.random.default_rng(seed + 4)
+    labels = np.zeros(len(x), dtype=int)
+    x = x.copy()
+    start = rng.integers(len(x) // 3, 2 * len(x) // 3)
+    length = 400
+    # amplify the amplitude locally
+    center = x[start:start + length].mean()
+    x[start:start + length] = center + (x[start:start + length] - center) * 3
+    labels[start:start + length] = 1
+    return x, labels
+
+
+def _inject_freq_shift(x, seed):
+    rng = np.random.default_rng(seed + 5)
+    labels = np.zeros(len(x), dtype=int)
+    x = x.copy()
+    start = rng.integers(len(x) // 3, 2 * len(x) // 3)
+    length = 500
+    t = np.arange(length)
+    # replace with a shifted-frequency segment
+    x[start:start + length] = np.sin(2 * np.pi * t / 12) + 0.3 * np.sin(2 * np.pi * t / 5)
+    labels[start:start + length] = 1
+    return x, labels
+
+
+def _window_features(x: np.ndarray, w: int = 64, stride: int = 16) -> Tuple[np.ndarray, np.ndarray]:
+    """Slide a window of size `w` with `stride` and describe each window with a
+    richer ~28-dim feature vector spanning time-domain statistics, difference
+    statistics, autocorrelation structure, distribution shape, and spectral energy.
+    Returns (features, window_center_indices).
+    """
+    n = len(x)
+    starts = np.arange(0, n - w + 1, stride)
+    feats = []
+    for s in starts:
+        win = x[s:s + w]
+        mu = win.mean()
+        sd = win.std()
+        diffs = np.diff(win)
+        d2 = np.diff(diffs)  # second differences
+
+        # autocorrelation at several lags
+        def _ac(k):
+            if k >= len(win):
+                return 0.0
+            a = win[:-k] - win[:-k].mean()
+            b = win[k:] - win[k:].mean()
+            denom = (np.std(win[:-k]) * np.std(win[k:]) * len(a) + 1e-12)
+            return float((a * b).sum() / denom)
+
+        # distribution shape (standardized moments)
+        z = (win - mu) / (sd + 1e-12)
+        skew = float((z ** 3).mean())
+        kurt = float((z ** 4).mean() - 3.0)
+
+        # quantiles and robust spread
+        q10, q25, q50, q75, q90 = np.quantile(win, [0.1, 0.25, 0.5, 0.75, 0.9])
+        iqr = q75 - q25
+
+        # zero-crossing rate of the mean-centered signal
+        zc = float((np.sign(win[:-1] - mu) != np.sign(win[1:] - mu)).mean())
+
+        # peak-to-peak and crest factor
+        ptp = win.max() - win.min()
+        rms = float(np.sqrt((win ** 2).mean()))
+        crest = float((np.abs(win).max()) / (rms + 1e-12))
+
+        # spectral: entropy + energy in 4 frequency bands
+        fft = np.abs(np.fft.rfft(win - mu))
+        power = fft ** 2
+        total_power = power.sum() + 1e-12
+        p_norm = power / total_power
+        p_pos = p_norm[p_norm > 0]
+        spec_ent = float(-(p_pos * np.log(p_pos)).sum())
+        # split spectrum into 4 bands, fraction of energy each
+        nb = len(power)
+        band = np.array_split(power, 4)
+        band_frac = [float(b.sum() / total_power) for b in band]
+        # dominant frequency index (normalized)
+        dom_freq = float(np.argmax(power) / (nb + 1e-12))
+
+        feats.append([
+            # time-domain (6)
+            mu, sd, win.min(), win.max(), ptp, rms,
+            # difference stats (4)
+            np.abs(diffs).mean(), diffs.std(), np.abs(d2).mean(), d2.std(),
+            # autocorrelation (4)
+            _ac(1), _ac(2), _ac(5), _ac(10),
+            # distribution shape (7)
+            skew, kurt, q10, q50, q90, iqr, zc,
+            # spectral (7)
+            spec_ent, crest, dom_freq, band_frac[0], band_frac[1], band_frac[2], band_frac[3],
+        ])
+    return np.array(feats, dtype=np.float64), starts + w // 2
+
+
+def _window_labels(labels: np.ndarray, starts: np.ndarray, w: int, min_count: int = 1) -> np.ndarray:
+    """A window is anomalous if it contains at least `min_count` anomalous points.
+    min_count=1 works for point anomalies; region-type anomalies naturally exceed this.
+    """
+    win_lab = []
+    for s in starts:
+        win_lab.append(int(labels[s:s + w].sum() >= min_count))
+    return np.array(win_lab, dtype=int)
+
+
+def _make_ts_dataset(name: str, x: np.ndarray, labels: np.ndarray,
+                     w: int = 64, stride: int = 16) -> Dataset:
+    starts = np.arange(0, len(x) - w + 1, stride)
+    X, _ = _window_features(x, w=w, stride=stride)
+    y = _window_labels(labels, starts, w=w, min_count=1)
+    return Dataset(name=name, X=X, y=y)
+
+
+def load_synthetic_ts(seed: int = 0) -> List[Dataset]:
+    """Return 10 synthetic time-series datasets, each already windowed."""
+    N = 10000  # length of each raw series -> ~625 windows at w=64, stride=16
+    rng = np.random.default_rng(seed)
+    datasets: List[Dataset] = []
+
+    # 4 point-spike variants (scale with N)
+    for i, n_anom in enumerate([40, 60, 80, 100]):
+        x = _base_seasonal(N, seed=seed + 100 + i)
+        x, lab = _inject_point_spikes(x, n_anom=n_anom, seed=seed + 100 + i)
+        datasets.append(_make_ts_dataset(f"ts_point_spikes_{i}", x, lab))
+
+    # 2 subsequence (scale with N)
+    for i, params in enumerate([(6, 120), (10, 80)]):
+        n_reg, reg_len = params
+        x = _base_seasonal(N, seed=seed + 200 + i)
+        x, lab = _inject_subseq(x, n_anom_regions=n_reg, region_len=reg_len, seed=seed + 200 + i)
+        datasets.append(_make_ts_dataset(f"ts_subseq_{i}", x, lab))
+
+    # trend / amplitude / frequency shift
+    for name, fn in [("ts_trend", _inject_trend),
+                     ("ts_amplitude", _inject_amplitude),
+                     ("ts_freq_shift", _inject_freq_shift)]:
+        x = _base_seasonal(N, seed=seed + 300)
+        x, lab = fn(x, seed=seed + 300)
+        datasets.append(_make_ts_dataset(name, x, lab))
+
+    # one mixed series
+    x = _base_seasonal(N, seed=seed + 400)
+    x, lab1 = _inject_point_spikes(x, n_anom=30, seed=seed + 400)
+    x, lab2 = _inject_subseq(x, n_anom_regions=4, region_len=80, seed=seed + 401)
+    lab = np.clip(lab1 + lab2, 0, 1)
+    datasets.append(_make_ts_dataset("ts_mixed", x, lab))
+
+    return datasets
+
+TS_NAMES=["ts_point_spikes_0","ts_point_spikes_1","ts_point_spikes_2","ts_point_spikes_3","ts_subseq_0","ts_subseq_1","ts_trend","ts_amplitude","ts_freq_shift","ts_mixed"]
+
+
+# ----------------------------- data fetch (on pod) --------------------------
+ADB="https://raw.githubusercontent.com/Minqi824/ADBench/main/adbench/datasets/"
+CLASSICAL=["6_cardio","8_celeba","10_cover","11_donors","13_fraud","14_glass","16_http",
+"18_Ionosphere","19_landsat","20_letter","21_Lymphography","22_magic.gamma","23_mammography",
+"25_musk","26_optdigits","27_PageBlocks","28_pendigits","29_Pima","30_satellite","31_satimage-2",
+"32_shuttle","33_skin","35_SpamBase","36_speech","37_Stamps","38_thyroid","39_vertebral",
+"40_vowels","41_Waveform","42_WBC","43_WDBC","44_Wilt","45_wine","46_WPBC","47_yeast"]
+CV=[f"CIFAR10_{i}" for i in range(10)]+[f"FashionMNIST_{i}" for i in range(10)]
+NLP=["20news_0","20news_1","20news_2","20news_3","20news_4","20news_5","agnews_0","agnews_1",
+"agnews_2","agnews_3","amazon","imdb","yelp"]
+
+def _dl(sub, names, outdir):
+    os.makedirs(outdir, exist_ok=True)
+    for nm in names:
+        out=os.path.join(outdir,nm+".npz")
+        if os.path.exists(out): continue
+        try: urllib.request.urlretrieve(ADB+sub+"/"+nm+".npz", out)
+        except Exception as e: print("  fetch fail",nm,e); sys.stdout.flush()
+
+def fetch_all():
+    print("[train] fetching data..."); sys.stdout.flush()
+    _dl("Classical",CLASSICAL,"data/adbench")
+    _dl("CV_by_ResNet18",CV,"data/cv")
+    _dl("NLP_by_BERT",NLP,"data/nlp")
+    print("[train] data fetched"); sys.stdout.flush()
+
+# ----------------------------- deep regime sweep ----------------------------
+import numpy as np, pandas as pd
+from joblib import Parallel, delayed
+
+SEEDS=[0]
+REGIMES=[(sel,30) for sel in ("smallest","random","hard")]
+
+def _load_npz_dataset(path,name):
+    arr=np.load(os.path.join(path,name+".npz"))
+    X=np.asarray(arr["X"],dtype=np.float64); y=np.asarray(arr["y"],dtype=int).ravel()
+    return Dataset(name=name,X=X,y=y)
+
+def _cell(spec):
+    tag,name,seed=spec
+    if tag=="ts":
+        ds=next(d for d in load_synthetic_ts(seed=0) if d.name==name)
+    else:
+        sub={"tabular":"data/adbench","cv":"data/cv","nlp":"data/nlp"}[tag]
+        arr=np.load(os.path.join(sub,name+".npz")); X=np.asarray(arr["X"],dtype=np.float64)
+        if not (200<=X.shape[0]<=50000): return None
+        ds=Dataset(name=name,X=X,y=np.asarray(arr["y"],dtype=int).ravel())
+    true_df=true_rank_from_labels(ds,seed=seed); true_df["seed"]=seed; true_df["modality"]=tag
+    parts=[]
+    for sel,K in REGIMES:
+        d=pseudo_auc_for_dataset(ds,K=K,M=10,selection=sel,seed=seed); d["regime"]=f"{sel}_K{K}"; parts.append(d)
+    ps=pd.concat(parts,ignore_index=True); ps["seed"]=seed; ps["modality"]=tag
+    return true_df,ps
+
+def main():
+    fetch_all()
+    CAP=8
+    modal_names={"ts":TS_NAMES[:CAP]}
+    for tag in ["tabular","cv","nlp"]:
+        d={"tabular":"data/adbench","cv":"data/cv","nlp":"data/nlp"}[tag]
+        names=sorted(f[:-4] for f in os.listdir(d) if f.endswith(".npz"))
+        modal_names[tag]=names[:CAP] if tag!="tabular" else names[:12]  # tabular filters internally to ~8
+    # interleave so partial data (on a cap) still covers all modalities
+    specs=[]
+    maxlen=max(len(v) for v in modal_names.values())
+    for i in range(maxlen):
+        for tag in ["ts","cv","nlp","tabular"]:
+            if i<len(modal_names[tag]):
+                for s in SEEDS: specs.append((tag,modal_names[tag][i],s))
+    print(f"[train] {len(specs)} cells x {len(REGIMES)} regimes, 11 detectors"); sys.stdout.flush()
+    ncpu=os.cpu_count() or 8
+    os.makedirs("results",exist_ok=True)
+    trues=[]; pseudos=[]; done=0
+    CHUNK=max(4,(ncpu-1))
+    for i in range(0,len(specs),CHUNK):
+        batch=specs[i:i+CHUNK]
+        out=Parallel(n_jobs=max(2,ncpu-1))(delayed(_cell)(s) for s in batch)
+        out=[o for o in out if o is not None]
+        trues+= [o[0] for o in out]; pseudos+=[o[1] for o in out]; done+=len(out)
+        # incremental save so a cap-kill still yields data
+        pd.concat(trues,ignore_index=True).to_parquet("results/modal_true_deep.parquet")
+        pd.concat(pseudos,ignore_index=True).to_parquet("results/modal_pseudo_deep.parquet")
+        print(f"[train] {done}/{len(specs)} cells done, saved"); sys.stdout.flush()
+    print(f"[train] === DONE === cells={done} rows={sum(len(x) for x in pseudos)}"); sys.stdout.flush()
+
+if __name__=="__main__":
+    main()
