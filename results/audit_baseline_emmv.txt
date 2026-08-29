@@ -1,0 +1,6 @@
+modality | EM    | MV    | random | ADRank | EM beats rand?
+  tabular | 0.029 | 0.031 | 0.092  | 0.020  | YES
+  cv     | 0.078 | 0.078 | 0.073  | 0.005  | no (collapses)
+  nlp    | 0.011 | 0.011 | 0.082  | 0.006  | YES
+  ts     | 0.006 | 0.005 | 0.020  | 0.002  | YES
+  dami   | 0.074 | 0.086 | 0.068  | 0.040  | no (collapses)
