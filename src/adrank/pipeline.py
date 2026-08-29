@@ -238,10 +238,15 @@ def cluster_composite_scores(Z: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
     size_component = 1.0 - sizes / n  # smaller = higher
 
     # mean distance to k nearest OTHER centroids (k = min(3, |clusters|-1))
-    k = max(1, min(3, len(uniq) - 1))
-    nn = NearestNeighbors(n_neighbors=k + 1).fit(centroids)
-    dists, _ = nn.kneighbors(centroids)
-    far_component = dists[:, 1:].mean(axis=1)  # drop self
+    if len(uniq) < 2:
+        # degenerate single-cluster case (e.g. a collapsed VaDE clustering): no
+        # "other" centroids, so the far-from-others component is undefined -> 0.
+        far_component = np.zeros(len(uniq))
+    else:
+        k = max(1, min(3, len(uniq) - 1))
+        nn = NearestNeighbors(n_neighbors=k + 1).fit(centroids)
+        dists, _ = nn.kneighbors(centroids)
+        far_component = dists[:, 1:].mean(axis=1)  # drop self
 
     # local density: mean distance from cluster members to their centroid
     density_component = np.array([
@@ -351,10 +356,20 @@ def pseudo_auc_for_dataset(
     M: int = 20,
     selection: str = "composite_top_quartile",
     seed: int = SEED,
+    precomputed: Optional[Tuple[np.ndarray, np.ndarray]] = None,
 ) -> pd.DataFrame:
-    """For each detector and each subset, return pseudo-AUC on (pseudo_anom vs pseudo_norm)."""
-    Z = embed(ds.X, dim=16)
-    labels = cluster(Z, K=K, seed=seed)
+    """For each detector and each subset, return pseudo-AUC on (pseudo_anom vs pseudo_norm).
+
+    `precomputed`, if given, is (Z, labels): an externally-computed latent embedding
+    and cluster labels (e.g. from VaDE), used instead of the default PCA-16 +
+    MiniBatchKMeans. This lets us swap the latent/clustering while holding the rest
+    of the pipeline fixed.
+    """
+    if precomputed is not None:
+        Z, labels = precomputed
+    else:
+        Z = embed(ds.X, dim=16)
+        labels = cluster(Z, K=K, seed=seed)
     scores = cluster_composite_scores(Z, labels)
     subsets = sample_subsets(
         labels, scores, n_points=ds.X.shape[0],
