@@ -281,6 +281,12 @@ def sample_subsets(
         candidate_clusters = cluster_scores.sort_values("size").head(max(2, len(cluster_scores) // 2))["cluster"].tolist()
     elif selection == "random":
         candidate_clusters = cluster_scores["cluster"].tolist()
+    elif selection == "hard":
+        # clusters embedded AMONG others (small distance to nearest other centroids):
+        # these are locally-sparse rather than globally-isolated pseudo-anomalies, so
+        # detecting them exercises local density normalization (e.g. LOF over KNN).
+        candidate_clusters = cluster_scores.sort_values("far_component").head(
+            max(2, len(cluster_scores) // 2))["cluster"].tolist()
     else:
         raise ValueError(selection)
 
