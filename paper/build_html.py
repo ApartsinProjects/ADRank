@@ -133,7 +133,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=str(ROOT / "paper/adrank.md"))
     ap.add_argument("--out", default=str(ROOT / "docs/index.html"))
-    ap.add_argument("--title", default="Ranking Anomaly Detectors Without Anomalies via Cluster-Holdout Pseudo-Labels")
+    ap.add_argument("--title", default="Ranking Anomaly Detectors from Normal Data Alone")
     a = ap.parse_args()
     build(a.src, a.out, a.title)
 
