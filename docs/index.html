@@ -239,7 +239,7 @@ and regret@3 uses the best of ADRank's top three picks. Regret is <strong>thresh
 <tr><td>Tabular</td><td>0.022 ± 0.003</td><td>0.024</td><td><b>0.020 ± 0.001</b></td><td>0.012</td><td>0.093</td></tr>
 <tr><td>Image (CV)</td><td>0.013 ± 0.003</td><td>0.019</td><td><b>0.005 ± 0.000</b></td><td>0.001</td><td>0.074</td></tr>
 <tr><td>Text (NLP)</td><td>0.022 ± 0.010</td><td>0.035</td><td><b>0.006 ± 0.002</b></td><td>0.005</td><td>0.082</td></tr>
-<tr><td>Time-series</td><td>0.002 ± 0.000</td><td>0.002</td><td><b>0.002 ± 0.000</b></td><td>0.001</td><td>0.020</td></tr>
+<tr><td>Time-series</td><td>0.003 ± 0.001</td><td>0.002</td><td><b>0.002 ± 0.000</b></td><td>0.001</td><td>0.020</td></tr>
 </tbody>
 </table>
 <div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 5.</b> regret@1 (mean ± seed std, 5 seeds) by ranking scheme. "Fixed ensemble" is the smallest+random default; "Auto-calibrated" weights the six-regime bank by cross-detector pseudo-AUC variance; "Oracle" picks per dataset the regime whose top pick has the highest true AUC (uses labels; upper bound). Auto-calibration is label-free and lands within 0.01 of the oracle on every modality.</div>

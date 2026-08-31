@@ -78,10 +78,19 @@ def _aggregate_rank(pp, scheme):
 
 
 def _regret(pred_score, tavg_ds):
-    best = tavg_ds.true_auc.max()
-    pick = pred_score.sort_values(ascending=False).index[0]
-    pv = tavg_ds[tavg_ds.detector == pick].true_auc
-    return best - (pv.values[0] if len(pv) else best)
+    # restrict the pick to detectors with a valid true AUC, matching the
+    # external-eval scripts (modal_oddbench.py:97); otherwise a pseudo-score
+    # top pick whose true AUC is NaN (e.g. PCA failing on a ts dataset) makes
+    # regret NaN and poisons the whole cell.
+    valid = tavg_ds.dropna(subset=["true_auc"])
+    if valid.empty:
+        return float("nan")
+    best = valid.true_auc.max()
+    ps = pred_score[pred_score.index.isin(set(valid.detector))]
+    if ps.empty:
+        return float("nan")
+    pick = ps.sort_values(ascending=False).index[0]
+    return float(best - valid.loc[valid.detector == pick, "true_auc"].values[0])
 
 
 def main():
