@@ -17,3 +17,9 @@ __pycache__/
 
 # Editor/session
 .claude/
+
+# LaTeX build intermediates (main.tex lives in paper/latex/)
+_tex/
+# Large result binaries and per-cell parts (regenerate via scripts/)
+results/*.parquet
+results/oddbench_parts/
