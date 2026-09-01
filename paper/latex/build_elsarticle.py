@@ -90,8 +90,8 @@ def main():
         "\\address[hit]{School of Computer Science, Faculty of Sciences, Holon Institute of Technology (HIT), Holon, Israel}\n"
         "\\address[afeka]{Intelligent Systems, Afeka Academic College of Engineering, Tel-Aviv, Israel}")
     tex = tex.replace("__JOURNAL__", "Neurocomputing")
-    tex = tex.replace("\\title{Ranking Anomaly Detectors from Normal Data Alone}",
-                      "\\title{\\vspace*{-2\\baselineskip}Ranking Anomaly Detectors from Normal Data Alone}")
+    tex = tex.replace("\\title{Anomaly Detector Model Selection by Normal Manifold Separability}",
+                      "\\title{\\vspace*{-2\\baselineskip}Anomaly Detector Model Selection by Normal Manifold Separability}")
 
     io.open(main_p, "w", encoding="utf-8").write(tex)
     print(f"grafted: abstract {len(abstract)}c, figure* = {tex.count(chr(92)+'begin{figure*}')}, "

@@ -124,7 +124,7 @@ def build(src, out, title):
     page = (f'<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             f'<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
             f'<title>{title}</title>\n{KATEX}\n<style>{STYLE}</style>\n</head>\n<body>\n'
-            f'{DOCXLINKS}{html}\n<footer>ADRank v1 · {title}</footer>\n</body>\n</html>\n')
+            f'{DOCXLINKS}{html}\n<footer>NoMaS v1 · {title}</footer>\n</body>\n</html>\n')
     outp = Path(out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(page, encoding="utf-8")
@@ -136,7 +136,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=str(ROOT / "paper/adrank.md"))
     ap.add_argument("--out", default=str(ROOT / "docs/index.html"))
-    ap.add_argument("--title", default="Ranking Anomaly Detectors from Normal Data Alone")
+    ap.add_argument("--title", default="Anomaly Detector Model Selection by Normal Manifold Separability")
     a = ap.parse_args()
     build(a.src, a.out, a.title)
 
