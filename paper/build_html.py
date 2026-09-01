@@ -87,11 +87,11 @@ KATEX = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.
 
 
 DOCXLINKS = """<div class="docxlinks">
-<a class="docxlink" href="adrank.pdf" download>&#8595; PDF (1-col)</a>
-<a class="docxlink" href="adrank-2col.pdf" download>&#8595; PDF (2-col)</a>
-<a class="docxlink" href="adrank-2col-latex.pdf" download>&#8595; PDF (2-col, LaTeX)</a>
-<a class="docxlink" href="adrank.docx" download>&#8595; Word (1-col)</a>
-<a class="docxlink" href="adrank-2col.docx" download>&#8595; Word (2-col)</a>
+<a class="docxlink" href="nomas.pdf" download>&#8595; PDF (1-col)</a>
+<a class="docxlink" href="nomas-2col.pdf" download>&#8595; PDF (2-col)</a>
+<a class="docxlink" href="nomas-2col-latex.pdf" download>&#8595; PDF (2-col, LaTeX)</a>
+<a class="docxlink" href="nomas.docx" download>&#8595; Word (1-col)</a>
+<a class="docxlink" href="nomas-2col.docx" download>&#8595; Word (2-col)</a>
 </div>
 """
 
@@ -134,7 +134,7 @@ def build(src, out, title):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default=str(ROOT / "paper/adrank.md"))
+    ap.add_argument("--src", default=str(ROOT / "paper/nomas.md"))
     ap.add_argument("--out", default=str(ROOT / "docs/index.html"))
     ap.add_argument("--title", default="Anomaly Detector Model Selection by Normal Manifold Separability")
     a = ap.parse_args()

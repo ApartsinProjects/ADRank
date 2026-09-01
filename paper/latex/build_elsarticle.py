@@ -56,7 +56,7 @@ def main():
     # journals NUMBER Limitations (converter stars it per the ACL convention).
     tex = tex.replace("\\section*{Limitations}", "\\section{Limitations}")
     # strip any leaked download-badge hrefs; map stray unicode
-    tex = re.sub(r"\\href\{adrank[^}]*\}\{[^}]*\}", "", tex)
+    tex = re.sub(r"\\href\{nomas[^}]*\}\{[^}]*\}", "", tex)
     tex = uni(tex)
 
     # make long bibliography URLs breakable: xurl breaks anywhere, and inside
@@ -98,9 +98,9 @@ def main():
           f"bibitems = {tex.count(chr(92)+'bibitem')}")
 
     sh([PY, os.path.join(SKILL, "scripts", "compile_local.py"), "--in-dir", "_tex", "--auto-patch"])
-    shutil.copy(os.path.join(ROOT, "_tex", "main.pdf"), os.path.join(ROOT, "docs", "adrank-2col-latex.pdf"))
+    shutil.copy(os.path.join(ROOT, "_tex", "main.pdf"), os.path.join(ROOT, "docs", "nomas-2col-latex.pdf"))
     shutil.copy(main_p, os.path.join(ROOT, "paper", "latex", "main.tex"))
-    print("done -> docs/adrank-2col-latex.pdf")
+    print("done -> docs/nomas-2col-latex.pdf")
 
 
 if __name__ == "__main__":
