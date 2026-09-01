@@ -3,7 +3,6 @@
 <div class="authors">Alexander Apartsin<sup>1</sup>, Yehudit Aperstein<sup>2</sup></div>
 <div class="affil"><sup>1</sup>School of Computer Science, Faculty of Sciences, Holon Institute of Technology (HIT), Holon, Israel</div>
 <div class="affil"><sup>2</sup>Intelligent Systems, Afeka Academic College of Engineering, Tel-Aviv, Israel</div>
-<div class="availability">Code and data: <code>github.com/ApartsinProjects/ADRank</code></div>
 
 <div class="abstract">
 <h2>Abstract</h2>
