@@ -1,11 +1,16 @@
-# LaTeX two-column build
+# Two-column LaTeX build (elsarticle)
 
-Professional two-column PDF (`docs/adrank-2col.pdf`), built from the paper HTML.
+Professional Elsevier-style two-column PDF (`docs/adrank-2col-latex.pdf`), built
+from `docs/index.html` via the html2tex skill (TwoColPaper route A).
 
 Regenerate:
-1. `python paper/build_html.py` (docs/index.html)
-2. `python <html2tex skill>/scripts/convert_to_tex.py --input docs/index.html --out-dir _tex/ --columns 2`
-3. `python paper/latex/build_latex.py` (wraps wide figures full-width, builds the bibliography, writes main.tex)
-4. `pdflatex main.tex` (twice), from `_tex/` — needs `html2tex_compat.tex` and `figures/`.
+1. `python paper/build_html.py`            # docs/index.html
+2. `python paper/latex/build_elsarticle.py`  # -> docs/adrank-2col-latex.pdf
 
-main.tex is self-contained apart from `html2tex_compat.tex` (float/table fixes) and `figures/`.
+`build_elsarticle.py` runs `convert_to_tex.py --columns 2` + `pack_tmlr_bundle.py
+--template elsarticle`, then grafts the front matter: the abstract into the
+elsarticle frontmatter, the real author block (Apartsin corresponding,
+apartsin@gmail.com), `\journal{Neurocomputing}`, a manual `thebibliography` from
+the 22 references, and full-width promotion of the two wide figures. `main.tex`
+is the generated bundle (needs `html2tex_compat.tex` + `figures/`); compiled with
+MiKTeX pdflatex.
