@@ -3,17 +3,19 @@
 
 Runs html2tex (convert --columns 2 -> pack elsarticle), then grafts the
 paper-specific front matter onto _tex/main.tex: abstract into the frontmatter,
-real author/affiliation block with corresponding author, journal name, a
-manual thebibliography from the 22 references (the house-style div.references
-is not auto-extracted), full-width promotion of the two wide figures, and
-Unicode/​badge cleanup. Output: _tex/main.pdf -> docs/adrank-2col.pdf.
+real author/affiliation block with corresponding author, journal name,
+full-width promotion of the two wide figures, journal back-matter conventions,
+and Unicode/badge cleanup. The bibliography is built by the converter itself
+(the div.references fix now landed in convert_to_tex.py). Output:
+_tex/main.pdf -> docs/adrank-2col-latex.pdf.
 """
-import os, re, io, json, subprocess, sys, shutil
+import os, re, io, subprocess, sys, shutil
 
 ROOT = r"E:\Projects\Submitted\ADRank"
 SKILL = r"C:\Users\apart\.claude\skills\html2tex"
-SCRATCH = r"E:\tmp\claude\E--Projects-Submitted-ADRank\236d6247-42ad-4e62-9828-db625dfa055d\scratchpad"
 PY = sys.executable
+
+UNI = {'\u2208': r'$\in$', '\u2193': '', '\u00d7': r'$\times$'}
 
 
 def sh(cmd):
@@ -21,23 +23,7 @@ def sh(cmd):
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
-UNI = {'\u00fc': r'\"u', '\u00f6': r'\"o', '\u00e4': r'\"a', '\u00df': r'\ss{}',
-       '\u00e9': r"\'e", '\u00e8': r'\`e', '\u00e1': r"\'a", '\u00ed': r"\'i",
-       '\u00f3': r"\'o", '\u00fa': r"\'u", '\u00f1': r'\~n', '\u00e7': r'\c{c}',
-       '\u00fd': r"\'y", '\u00f8': r'\o{}', '\u010d': r'\v{c}', '\u0161': r'\v{s}',
-       '\u017e': r'\v{z}', '\u2013': '--', '\u2014': '---', '\u2019': "'",
-       '\u2018': "'", '\u00d7': r'$\times$', '\u2208': r'$\in$', '\u2193': ''}
-
-
-def esc(s):
-    s = s.replace('\\', r'\textbackslash{}').replace('&', r'\&').replace('%', r'\%')
-    s = s.replace('#', r'\#').replace('_', r'\_').replace('~', r'\textasciitilde{}')
-    for k, v in UNI.items():
-        s = s.replace(k, v)
-    return s
-
-
-def uni_body(s):
+def uni(s):
     for k, v in UNI.items():
         s = s.replace(k, v)
     return s
@@ -49,41 +35,39 @@ def main():
     sh([PY, os.path.join(SKILL, "scripts", "pack_tmlr_bundle.py"),
         "--in-dir", "_tex", "--template", "elsarticle"])
 
-    # references (HTML order = citation numbering) -> thebibliography
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(io.open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read(), "html.parser")
-    refs = []
-    for p in soup.select("div.references p"):
-        for a in p.find_all("a"):
-            a.replace_with(a.get_text())
-        refs.append(" ".join(p.get_text().split()))
-    assert len(refs) == 22, f"expected 22 refs, got {len(refs)}"
-    biblio = ["\\begin{thebibliography}{99}\n\\setlength{\\itemsep}{2pt}"]
-    for i, r in enumerate(refs, 1):
-        biblio.append(f"\\bibitem{{ref{i}}} {esc(r)}")
-    biblio.append("\\end{thebibliography}")
-    biblio = "\n".join(biblio)
-
     main_p = os.path.join(ROOT, "_tex", "main.tex")
     tex = io.open(main_p, encoding="utf-8").read()
 
-    fm_end = tex.index("\\end{frontmatter}") + len("\\end{frontmatter}")
-    doc_end = tex.rindex("\\end{document}")
-    body_full = tex[fm_end:doc_end]
-
-    # abstract sits in the body under \section{Abstract}; carve it out
-    m = re.search(r"\\section\{Abstract\}\\label\{abstract\}\s*(.*?)\s*\\section\{Introduction\}", body_full, re.S)
-    abstract = m.group(1).strip()
+    # carve the abstract out of the body (house-style div.abstract comes through
+    # as a \section{Abstract}); re-insert it into elsarticle's frontmatter.
+    m = re.search(r"\\section\{Abstract\}\\label\{abstract\}\s*(.*?)\s*\\section\{Introduction\}", tex, re.S)
+    abstract = uni(m.group(1).strip())
     assert len(abstract) > 500, "abstract extraction failed"
 
-    intro = body_full.index("\\section{Introduction}")
-    refs_pos = body_full.index("\\section{References}")
-    body_main = body_full[intro:refs_pos].rstrip()
+    # drop the pre-Introduction body cruft (web badges, HTML byline, the
+    # \section{Abstract} block) by splicing frontmatter straight to Introduction.
+    fm_end = tex.index("\\end{frontmatter}") + len("\\end{frontmatter}")
+    intro = tex.index("\\section{Introduction}")
+    tex = tex[:fm_end] + "\n\n" + tex[intro:]
 
-    # strip leaked download-badge hrefs; unicode fixes
-    body_main = re.sub(r"\\href\{adrank[^}]*\}\{[^}]*\}", "", body_main)
-    body_main = uni_body(body_main)
-    abstract = uni_body(abstract)
+    # the converter's thebibliography prints its own heading; remove the phantom
+    # \section{References} left by the <h2>References</h2> whose <div> was extracted.
+    tex = re.sub(r"\\section\{References\}\\label\{references\}\n?", "", tex)
+    # journals NUMBER Limitations (converter stars it per the ACL convention).
+    tex = tex.replace("\\section*{Limitations}", "\\section{Limitations}")
+    # strip any leaked download-badge hrefs; map stray unicode
+    tex = re.sub(r"\\href\{adrank[^}]*\}\{[^}]*\}", "", tex)
+    tex = uni(tex)
+
+    # make long bibliography URLs breakable: xurl breaks anywhere, and inside
+    # thebibliography normalize \href{U}{T} -> \url{U} and wrap bare URLs, so a
+    # long arXiv/DOI/proceedings link wraps instead of running into the margin.
+    tex = tex.replace("\\usepackage{newtxmath}", "\\usepackage{newtxmath}\n\\usepackage{xurl}")
+    def _bib_urls(mo):
+        seg = re.sub(r"\\href\{([^}]*)\}\{[^}]*\}", r"\\url{\1}", mo.group(0))
+        seg = re.sub(r"(?<![{/])(https?://[^\s{}]+)", r"\\url{\1}", seg)
+        return seg
+    tex = re.sub(r"\\begin\{thebibliography\}.*?\\end\{thebibliography\}", _bib_urls, tex, flags=re.S)
 
     # promote the two WIDE figures (fig1 two-panel, fig4 bars) to full-width figure*
     def promote(mobj):
@@ -91,16 +75,17 @@ def main():
         if "fig1_rho" in blk or "fig4_regret" in blk:
             blk = blk.replace(r"\begin{figure}[tbp]", r"\begin{figure*}[t]").replace(r"\end{figure}", r"\end{figure*}")
         return blk
-    body_main = re.sub(r"\\begin\{figure\}\[tbp\].*?\\end\{figure\}", promote, body_main, flags=re.S)
+    tex = re.sub(r"\\begin\{figure\}\[tbp\].*?\\end\{figure\}", promote, tex, flags=re.S)
 
-    # frontmatter grafting
+    # frontmatter grafting: abstract, real author block (Aperstein corresponding),
+    # journal, and a tighter top margin above the title.
     tex = tex.replace("\\begin{abstract}\n\n\\end{abstract}",
                       "\\begin{abstract}\n" + abstract + "\n\\end{abstract}")
     tex = tex.replace(
         "\\author{Anonymous Authors}\n\\address{Anonymous Affiliations}",
-        "\\author[hit]{Alexander Apartsin\\corref{cor1}}\n"
-        "\\ead{apartsin@gmail.com}\n"
-        "\\author[afeka]{Yehudit Aperstein}\n"
+        "\\author[hit]{Alexander Apartsin}\n"
+        "\\author[afeka]{Yehudit Aperstein\\corref{cor1}}\n"
+        "\\ead{apersteiny@afeka.ac.il}\n"
         "\\cortext[cor1]{Corresponding author}\n"
         "\\address[hit]{School of Computer Science, Faculty of Sciences, Holon Institute of Technology (HIT), Holon, Israel}\n"
         "\\address[afeka]{Intelligent Systems, Afeka Academic College of Engineering, Tel-Aviv, Israel}")
@@ -108,13 +93,9 @@ def main():
     tex = tex.replace("\\title{Ranking Anomaly Detectors from Normal Data Alone}",
                       "\\title{\\vspace*{-2\\baselineskip}Ranking Anomaly Detectors from Normal Data Alone}")
 
-    # recompute head (frontmatter) after replacements, then splice body + biblio
-    fm_end = tex.index("\\end{frontmatter}") + len("\\end{frontmatter}")
-    doc_end = tex.rindex("\\end{document}")
-    tex = tex[:fm_end] + "\n\n" + body_main + "\n\n" + biblio + "\n\n" + tex[doc_end:]
-
     io.open(main_p, "w", encoding="utf-8").write(tex)
-    print(f"grafted: abstract {len(abstract)}c, 22 refs, figure* = {tex.count(chr(92)+'begin{figure*}')}")
+    print(f"grafted: abstract {len(abstract)}c, figure* = {tex.count(chr(92)+'begin{figure*}')}, "
+          f"bibitems = {tex.count(chr(92)+'bibitem')}")
 
     sh([PY, os.path.join(SKILL, "scripts", "compile_local.py"), "--in-dir", "_tex", "--auto-patch"])
     shutil.copy(os.path.join(ROOT, "_tex", "main.pdf"), os.path.join(ROOT, "docs", "adrank-2col-latex.pdf"))

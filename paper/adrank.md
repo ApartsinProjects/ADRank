@@ -7,11 +7,11 @@
 <div class="abstract">
 <h2>Abstract</h2>
 
-<p>Choosing an anomaly detector for a new dataset is a chicken-and-egg problem: the natural way to compare detectors, held-out ROC-AUC, needs labeled anomalies, which unsupervised deployments do not have. We introduce ADRank, a method that ranks a panel of detectors with no labels. It treats clusters of the unlabeled data as stand-in anomalies: cluster the data, hide a few clusters, fit each detector on the rest, and score how well it flags the hidden clusters. The detector that flags them best is the one to deploy.</p>
+<p>Choosing an anomaly detector for a new dataset is a chicken-and-egg problem: comparing detectors by held-out ROC-AUC requires labeled anomalies, which unsupervised deployments lack. ADRank ranks a panel of detectors from the unlabeled data alone: cluster the data, hold out a few clusters as stand-in anomalies, fit each detector on the rest, and score how well it flags the held-out clusters. We evaluate a selector by <em>regret</em>, the AUC gap between the best available detector and the one it picks.</p>
 
-<p>We score a selector by <em>regret</em>: the AUC gap between the best detector available and the one it picks. ADRank draws its signal from the shape of normal data alone. In a contamination study its regret does not change when every anomaly is removed from its input, so it needs no anomalies to find the detector that will.</p>
+<p>We develop ADRank on a benchmark of 69 datasets spanning tabular, image, text, and time-series modalities, where a label-free self-calibration cuts regret 78 to 93% below a random pick, within 0.01 AUC of a labels-based oracle. The signal comes from the geometry of normal data alone: regret is unchanged at 0% contamination, so ADRank needs no anomalies in its input to find the detector that will catch them. Against the harder bar of committing to one detector, it beats the Isolation Forest default and matches the best fixed detector without knowing in advance which one it is.</p>
 
-<p>Across 69 datasets spanning tabular, image, text, and time-series data, a label-free self-calibration cuts selection regret by 78 to 93% against a random pick, coming within 0.01 AUC of an oracle that uses labels. Against the harder bar of committing to one detector, ADRank beats the popular Isolation Forest default and matches the best fixed detector without knowing in advance which one it is. Frozen and run on 187 previously-unseen datasets, it has the lowest regret of any label-free strategy and the most robust skill across benchmarks; because the best fixed detector changes from one benchmark to the next, no advance choice is safe, and ADRank tracks the winner on its own. Its one limit is datasets whose best detector is global rather than local, which a marginal-tail variant partly closes. We release the code, benchmark, and per-dataset results.</p>
+<p>To test generalization, we freeze the method and run it, with no further tuning, on 187 previously-unseen tabular datasets from OddBench. There it attains the lowest regret of any label-free strategy and the most robust skill across benchmarks; because the best fixed detector changes from one benchmark to the next, no advance choice is safe, and ADRank tracks the winner on its own. One limit remains, datasets whose best detector is global rather than local, which a marginal-tail variant partly closes. We release the code, benchmark, and per-dataset results.</p>
 </div>
 
 ## 1. Introduction
@@ -54,9 +54,9 @@ Let $X \in \mathbb{R}^{n \times d}$ be an unlabeled tabular dataset and let $\ma
 
 ## 4. Experimental setup
 
-**Datasets.** Our primary benchmark is the 35 ADBench Classical `.npz` files from [5]; after a size filter $200 \le n \le 50{,}000$, 26 datasets remain, spanning anomaly rates from 1.2% to 39.9%, dimensions from 5 to 400, and problem domains from health to spam classification. We additionally validate on a second, independently-preprocessed tabular benchmark, DAMI [16] (10 datasets after the same size filter and an anomaly-rate filter $\le 35\%$), which shares some UCI sources with ADBench but applies the Campos et al. normalization and de-duplication protocol, so it tests robustness to preprocessing rather than to disjoint data. For a frozen external test (Section 5.8) we additionally use OddBench [22], a public collection of 790 tabular anomaly-detection datasets with real-world semantic anomalies (MacrOData-CMU, <a href="https://huggingface.co/datasets/MacrOData-CMU/OddBench">huggingface.co/datasets/MacrOData-CMU/OddBench</a>); none of it was touched while developing the method, and we hash-sample the evaluation subset by dataset name rather than choosing it by performance. Labels are used only to compute the ground-truth ranking $\pi_X^*$; ADRank never sees them.
+**Datasets.** Our primary benchmark is the 35 ADBench Classical `.npz` files from [5]; after a size filter $200 \le n \le 50{,}000$, 26 datasets remain, spanning anomaly rates from 1.2% to 39.9%, dimensions from 5 to 400, and problem domains from health to spam classification. We additionally validate on a second, independently-preprocessed tabular benchmark, DAMI [16] (10 datasets after the same size filter and an anomaly-rate filter $\le 35\%$), which shares some UCI sources with ADBench but applies the Campos et al. normalization and de-duplication protocol, so it tests robustness to preprocessing rather than to disjoint data. For a frozen external test (Section 5.5) we additionally use OddBench [22], a public collection of 790 tabular anomaly-detection datasets with real-world semantic anomalies (MacrOData-CMU, <a href="https://huggingface.co/datasets/MacrOData-CMU/OddBench">huggingface.co/datasets/MacrOData-CMU/OddBench</a>); none of it was touched while developing the method, and we hash-sample the evaluation subset by dataset name rather than choosing it by performance. Labels are used only to compute the ground-truth ranking $\pi_X^*$; ADRank never sees them.
 
-**Detectors.** We use nine canonical PyOD detectors [6] with fixed default hyperparameters: IForest, LOF, KNN, ECOD, COPOD, HBOS, PCA, CBLOF, LODA (OCSVM is dropped after a repeatable libsvm C-level crash under multi-worker parallelism; panel-robustness in Section 5.3 shows this removal does not materially change the ranking). We separately verify the results with two deep detectors added, AutoEncoder and DeepSVDD [14] (an 11-detector panel), in Section 5.7.
+**Detectors.** We use nine canonical PyOD detectors [6] with fixed default hyperparameters: IForest, LOF, KNN, ECOD, COPOD, HBOS, PCA, CBLOF, LODA (OCSVM is dropped after a repeatable libsvm C-level crash under multi-worker parallelism; panel-robustness in Section 5.3 shows this removal does not materially change the ranking). We separately verify the results with two deep detectors added, AutoEncoder and DeepSVDD [14] (an 11-detector panel), in Section 5.4.
 
 **Ground truth.** For each dataset, we split the normal points 80/20; fit each detector on the 80% normal training fold; evaluate ROC-AUC on the union of the 20% normal test fold and all real anomalies. The ordering by ROC-AUC gives $\pi_X^*$.
 
@@ -106,59 +106,7 @@ On the 26 tabular ADBench datasets, five-seed ADRank picks a detector within **r
 <figcaption><b>Figure 2.</b> Spearman ρ of ADRank vs true-AUC spread across the detector panel, per dataset, all aggregation variants. Right of the vertical dashed line at spread = 0.10 the ranking question is well-posed; there ADRank is systematically positive. Left of it, the "true" ranking is dominated by near-ties, and correlation is dominated by noise.</figcaption>
 </figure>
 
-### 5.2 Ablations
-
-We ablate three axes: cluster-selection strategy (smallest clusters only, uniform random, composite "small + far from other centroids + low local density"), aggregation (mean, Borda, variance-weighted), and $K$ (30 or 50). Table 2 shows the top rows on the spread ≥ 0.10 subset.
-
-<table>
-<thead><tr><th>Aggregation</th><th>Selection</th><th>K</th><th>ρ mean</th><th>ρ median</th><th>top-1</th><th>top-3</th></tr></thead>
-<tbody>
-<tr><td><b>mean</b></td><td><b>smallest</b></td><td><b>30</b></td><td><b>0.599</b></td><td><b>0.733</b></td><td><b>0.353</b></td><td><b>0.647</b></td></tr>
-<tr><td>varweight</td><td>smallest</td><td>30</td><td>0.597</td><td>0.709</td><td>0.412</td><td>0.647</td></tr>
-<tr><td>borda</td><td>smallest</td><td>30</td><td>0.592</td><td>0.648</td><td>0.412</td><td>0.608</td></tr>
-<tr><td>mean</td><td>random</td><td>30</td><td>0.579</td><td>0.673</td><td>0.118</td><td>0.627</td></tr>
-<tr><td>mean</td><td>composite</td><td>30</td><td>0.473</td><td>0.600</td><td>0.353</td><td>0.569</td></tr>
-<tr><td>mean</td><td>composite</td><td>50</td><td>0.458</td><td>0.515</td><td>0.235</td><td>0.608</td></tr>
-</tbody>
-</table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 2.</b> Ablation on the spread ≥ 0.10 subset, single seed. Smallest-cluster selection beats both random and the hand-designed composite. Aggregation choice is nearly irrelevant.</div>
-
-Two findings against our prior expectations:
-
-- **The hand-designed cluster selector was the worst of the three.** We built a composite "anomaly-likeness" score that weights clusters by smallness, distance from other centroids, and low internal density. We expected it to concentrate on realistic anomalies. It performed ~0.13 ρ below simple smallest-first selection on the spread ≥ 0.10 subset. The reason: composite over-weights far, low-density clusters, and every detector separates those near-perfectly, killing the discriminative variance needed for ranking. Smallest-cluster selection samples pseudo-anomalies at a range of difficulty levels, some near the manifold boundary and some inside, which is what separates detectors. Design lesson: when picking a pseudo-negative distribution for model selection, calibrate difficulty on the middle, not the extremes.
-- **Aggregation barely matters.** Mean, Borda over per-subset ranks, and variance-weighted mean all fall within ±0.02 ρ. Ship the simplest option.
-
-### 5.3 Panel robustness
-
-The drop-one analysis runs on the original 10-detector panel (the nine detectors of Section 4 plus OCSVM): we recompute ADRank ρ using only 9 of the 10 detectors, dropping each one in turn (Table 3). Baseline ρ = 0.599 on the spread ≥ 0.10 subset with all 10.
-
-<table>
-<thead><tr><th>Dropped</th><th>ρ_spread10</th><th>Δ vs baseline</th></tr></thead>
-<tbody>
-<tr><td>IForest</td><td>0.557</td><td>-0.042</td></tr>
-<tr><td>KNN</td><td>0.568</td><td>-0.031</td></tr>
-<tr><td>PCA</td><td>0.582</td><td>-0.017</td></tr>
-<tr><td>ECOD</td><td>0.583</td><td>-0.016</td></tr>
-<tr><td>LODA</td><td>0.602</td><td>+0.003</td></tr>
-<tr><td>LOF</td><td>0.610</td><td>+0.011</td></tr>
-<tr><td>CBLOF</td><td>0.622</td><td>+0.023</td></tr>
-<tr><td>OCSVM</td><td>0.629</td><td>+0.030</td></tr>
-<tr><td>COPOD</td><td>0.640</td><td>+0.041</td></tr>
-<tr><td>HBOS</td><td>0.642</td><td>+0.043</td></tr>
-</tbody>
-</table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 3.</b> Drop-one detector robustness. ρ stays in [0.557, 0.642] under any single-detector removal. Dropping the strongest single detector (IForest) is the largest loss but leaves ρ well above the consensus baseline.</div>
-
-The ranking is stable to detector-panel choice. Dropping the strongest single detector (IForest) is the largest cost and still leaves ρ = 0.557, above the consensus baseline by ~0.7. Removing OCSVM or HBOS improves ρ marginally, indicating they contribute more noise than signal to the pseudo-ranking under this panel and dataset mix; the OCSVM row is the panel-removal check referenced in Section 4.
-
-### 5.4 Per-dataset scatter
-
-<figure>
-<img src="figures/fig3_scatter.png" alt="Per-dataset scatter of ADRank-predicted rank against true rank">
-<figcaption><b>Figure 3.</b> Predicted rank (ADRank) vs true rank per detector, one panel per dataset. Dashed grey identity line. Datasets where the scatter clusters near the diagonal (vowels, magic.gamma, optdigits, satellite, Pima, PageBlocks, satimage-2, Waveform) contribute the bulk of the aggregate signal. Datasets with saturated true AUC (WBC, WDBC, mammography) show noise-dominated tie-breaking.</figcaption>
-</figure>
-
-### 5.5 Cross-modality: images, text, time-series
+### 5.2 Cross-modality: images, text, time-series
 
 To test whether the cluster-holdout ranking mechanism is specific to tabular data or generalizes to other modalities, we run the same pipeline (same 9 detectors, same K = 30, M = 20, smallest-cluster selection, mean aggregation) on three additional data sources:
 
@@ -175,7 +123,7 @@ To test whether the cluster-holdout ranking mechanism is specific to tabular dat
 <tr><td>Time-series</td><td>windowed (28 dims)</td><td>10</td><td>0.002 ± 0.000</td><td>0.001</td><td>0.020</td><td>90%</td><td>0.69 ± 0.04</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 4.</b> Cross-modality, mean over each modality's datasets and five seeds; ± is the seed standard deviation. Config is the ensemble default (smallest+random selection, K = 30) for every modality. "reduction" is the regret@1 cut versus random pick. Regret standard deviations are ≤ 0.010, so the rankings are stable; the thresholded Spearman column shows how much noisier that metric is (NLP ρ std = 0.26).</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 2.</b> Cross-modality, mean over each modality's datasets and five seeds; ± is the seed standard deviation. Config is the ensemble default (smallest+random selection, K = 30) for every modality. "reduction" is the regret@1 cut versus random pick. Regret standard deviations are ≤ 0.010, so the rankings are stable; the thresholded Spearman column shows how much noisier that metric is (NLP ρ std = 0.26).</div>
 
 ADRank cuts detector-selection regret versus random by **77% on tabular, 81% on images, 73% on text, and 90% on time-series**. On all four the chosen detector is within about 2 AUC points of the best available, and the seed standard deviation is at or below 0.010, so the selection is stable. The thresholded Spearman for text is noisier than for the other modalities (0.62 ± 0.26): several NLP datasets sit near the spread = 0.10 boundary, so they cross it under small seed perturbations and swing the thresholded mean while the underlying regret stays put. This is exactly why we report regret as primary.
 
@@ -185,11 +133,11 @@ Two further findings shape how the method must be configured off tabular data.
 
 **Time-series needs an expressive window representation.** Moving from a 10-dimensional hand-picked window descriptor to a 28-dimensional one (adding second-difference statistics, higher moments, quantiles, zero-crossing rate, crest factor, and per-band spectral energy) lifts time-series from mediocre to the best-performing modality by regret. Its top-1 hit rate is nonetheless low, because the pseudo-task ranks a local-density detector (KNN, LOF) first while real point-spike anomalies are best caught by histogram or isolation methods; but regret@1 = 0.002 shows the density detector it picks is within 0.2 AUC points of the best, so the top-1 miss is between near-equivalent detectors and costs almost nothing. This is precisely the case regret scores correctly and top-1 hit rate does not.
 
-The takeaway: given any encoder that produces a fixed-length vector per input, ADRank selects a near-best detector on all four modalities under the ensemble default, and the auto-calibration of Section 5.6 sharpens the two embedding modalities further.
+The takeaway: given any encoder that produces a fixed-length vector per input, ADRank selects a near-best detector on all four modalities under the ensemble default, and the auto-calibration of Section 5.3 sharpens the two embedding modalities further.
 
-### 5.6 Auto-calibration recovers near-oracle regret on every modality
+### 5.3 Auto-calibration recovers near-oracle regret on every modality
 
-A single pseudo-anomaly regime can under-serve embedding data: the true-best text detector is a local-density method (LOF wins on most of the 13 datasets), but under a smallest-cluster regime alone the held-out compact clusters are separated as well by KNN, so ADRank's pick flips to KNN or CBLOF and forfeits LOF's advantage (text regret 0.065 under smallest-only, versus 0.022 under the ensemble default of Table 4). Rather than hand-pick a regime per modality, we let the data choose: run the regime bank of Section 3 and weight each regime by its cross-detector pseudo-AUC variance, a label-free measure of how well the regime discriminates detectors (Table 5).
+A single pseudo-anomaly regime can under-serve embedding data: the true-best text detector is a local-density method (LOF wins on most of the 13 datasets), but under a smallest-cluster regime alone the held-out compact clusters are separated as well by KNN, so ADRank's pick flips to KNN or CBLOF and forfeits LOF's advantage (text regret 0.065 under smallest-only, versus 0.022 under the ensemble default of Table 2). Rather than hand-pick a regime per modality, we let the data choose: run the regime bank of Section 3 and weight each regime by its cross-detector pseudo-AUC variance, a label-free measure of how well the regime discriminates detectors (Table 3).
 
 <table>
 <thead><tr><th>Modality</th><th>Fixed ensemble</th><th>Uniform bank</th><th><b>Auto-calibrated</b></th><th>Oracle (labels)</th><th>Random</th></tr></thead>
@@ -200,16 +148,16 @@ A single pseudo-anomaly regime can under-serve embedding data: the true-best tex
 <tr><td>Time-series</td><td>0.003 ± 0.001</td><td>0.002</td><td><b>0.002 ± 0.000</b></td><td>0.001</td><td>0.020</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 5.</b> regret@1 (mean ± seed std, 5 seeds) by ranking scheme. "Fixed ensemble" is the smallest+random default; "Auto-calibrated" weights the six-regime bank by cross-detector pseudo-AUC variance; "Oracle" picks per dataset the regime whose top pick has the highest true AUC (uses labels; upper bound). Auto-calibration is label-free and lands within 0.01 of the oracle on every modality.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 3.</b> regret@1 (mean ± seed std, 5 seeds) by ranking scheme. "Fixed ensemble" is the smallest+random default; "Auto-calibrated" weights the six-regime bank by cross-detector pseudo-AUC variance; "Oracle" picks per dataset the regime whose top pick has the highest true AUC (uses labels; upper bound). Auto-calibration is label-free and lands within 0.01 of the oracle on every modality.</div>
 
 <figure>
 <img src="figures/fig4_regret.png" alt="Bar chart of regret@1 for random pick, fixed-ensemble ADRank, and auto-calibrated ADRank across four modalities">
-<figcaption><b>Figure 4.</b> Detector-selection regret@1 (true-AUC gap between the best detector and the selector's pick; lower is better), mean over five seeds. Auto-calibration (dark bars, discriminative regime weighting) matches the fixed ensemble on tabular and time-series and sharply improves image and text; the text bar drops from 0.022 to 0.006. Percentages are the reduction versus random pick.</figcaption>
+<figcaption><b>Figure 3.</b> Detector-selection regret@1 (true-AUC gap between the best detector and the selector's pick; lower is better), mean over five seeds. Auto-calibration (dark bars, discriminative regime weighting) matches the fixed ensemble on tabular and time-series and sharply improves image and text; the text bar drops from 0.022 to 0.006. Percentages are the reduction versus random pick.</figcaption>
 </figure>
 
 Auto-calibration cuts regret by 78-93% relative to random on all four modalities, and improves the two embedding modalities further to near-oracle: text from 0.022 to 0.006 (3.7×) and image from 0.013 to 0.005. Inspecting the learned weights confirms the mechanism: on 10 of 13 text datasets the top-weighted regime is <em>hard</em>, the locally-embedded one that exercises local-density detection, and under calibration ADRank picks LOF on all 13 (versus KNN/CBLOF before). The weighting adapts rather than fixing on one regime: on two text datasets it up-weights <em>random</em> instead, and on tabular and image it favors the ensemble that already worked. Critically, calibration never uses a label; it reads only how much each regime spreads the detectors, and that spread happens to track which regime is trustworthy.
 
-**Comparison to internal-metric baselines.** Table 5b sets ADRank against the canonical Excess-Mass and Mass-Volume internal metrics [1], on the same datasets and true rankings. ADRank has lower mean regret than both EM and MV on every modality, but a paired analysis (per-dataset regret over seeds, Wilcoxon signed-rank) sharpens the picture. ADRank beats random with high significance everywhere (tabular p = 1e-5, image p = 4e-6, text p = 5e-4; 23/26, 19/20, 12/13 datasets won). Against EM it is significantly better only where EM's high-dimensional volume estimate breaks: on 512-dimensional image embeddings ADRank wins 20 of 20 datasets (p = 2e-6), whereas on tabular (p = 0.80, 11/26 wins) and text (p = 0.69) the two are statistically comparable. The robust claim is therefore not that ADRank uniformly dominates EM/MV, but that it matches them where they work and stays well above random where they collapse below it: EM and MV fall to or under random on image embeddings and DAMI (EM 0.078 vs random 0.074 on images; 0.074 vs 0.067 on DAMI), while ADRank never does. The pooled skill $S$ (Section 4) ranges from 0.93 on images to 0.43 on the hard DAMI benchmark, the fraction of the achievable over-random improvement ADRank captures on each.
+**Comparison to internal-metric baselines.** Table 4 sets ADRank against the canonical Excess-Mass and Mass-Volume internal metrics [1], on the same datasets and true rankings. ADRank has lower mean regret than both EM and MV on every modality, but a paired analysis (per-dataset regret over seeds, Wilcoxon signed-rank) sharpens the picture. ADRank beats random with high significance everywhere (tabular p = 1e-5, image p = 4e-6, text p = 5e-4; 23/26, 19/20, 12/13 datasets won). Against EM it is significantly better only where EM's high-dimensional volume estimate breaks: on 512-dimensional image embeddings ADRank wins 20 of 20 datasets (p = 2e-6), whereas on tabular (p = 0.80, 11/26 wins) and text (p = 0.69) the two are statistically comparable. The robust claim is therefore not that ADRank uniformly dominates EM/MV, but that it matches them where they work and stays well above random where they collapse below it: EM and MV fall to or under random on image embeddings and DAMI (EM 0.078 vs random 0.074 on images; 0.074 vs 0.067 on DAMI), while ADRank never does. The pooled skill $S$ (Section 4) ranges from 0.93 on images to 0.43 on the hard DAMI benchmark, the fraction of the achievable over-random improvement ADRank captures on each.
 
 <table>
 <thead><tr><th>Modality</th><th>EM [1]</th><th>MV [1]</th><th>Consensus</th><th>Random</th><th><b>ADRank</b></th><th>ADRank skill <em>S</em></th></tr></thead>
@@ -221,24 +169,11 @@ Auto-calibration cuts regret by 78-93% relative to random on all four modalities
 <tr><td>DAMI</td><td>0.074</td><td>0.086</td><td>—</td><td>0.067</td><td><b>0.040</b></td><td>0.43</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 5b.</b> regret@1 (absolute AUC points; lower is better) for ADRank versus label-free baselines. EM/MV are the Goix internal metrics, estimated by scoring both the data and a uniform Monte-Carlo sample of the feature box with each fitted detector. Consensus (rank by agreement with the mean detector score) scores Spearman ρ = -0.15 on tabular and is worse than random; its regret is dominated by that failure and omitted here for brevity. "skill" is the pooled selection skill $S = 1 - \sum\mathrm{regret} / \sum\mathrm{regret}_{\text{random}}$ over the modality's datasets (Section 4), the fraction of the achievable over-random improvement ADRank captures; pooling weights each dataset by how much the choice mattered, so it differs slightly from one minus the ratio of the rounded column means. ADRank is lowest on every row, and unlike EM/MV never falls to the random baseline.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 4.</b> regret@1 (absolute AUC points; lower is better) for ADRank versus label-free baselines. EM/MV are the Goix internal metrics, estimated by scoring both the data and a uniform Monte-Carlo sample of the feature box with each fitted detector. Consensus (rank by agreement with the mean detector score) scores Spearman ρ = -0.15 on tabular and is worse than random; its regret is dominated by that failure and omitted here for brevity. "skill" is the pooled selection skill $S = 1 - \sum\mathrm{regret} / \sum\mathrm{regret}_{\text{random}}$ over the modality's datasets (Section 4), the fraction of the achievable over-random improvement ADRank captures; pooling weights each dataset by how much the choice mattered, so it differs slightly from one minus the ratio of the rounded column means. ADRank is lowest on every row, and unlike EM/MV never falls to the random baseline.</div>
 
-### 5.7 A second benchmark, deep detectors, and a structural ceiling
+### 5.4 A second benchmark and a structural ceiling
 
 **Second benchmark (DAMI).** On the independently-preprocessed DAMI datasets, auto-calibrated ADRank cuts regret by 41% versus random (regret@1 = 0.040 ± 0.004 vs 0.067), with the fixed ensemble at 36%. This is a clear, significant transfer, but well below the 78% on ADBench. DAMI is genuinely harder to rank on: it has a larger fraction of datasets whose true-best detector is a global method (52% vs 28% on ADBench) and lower separability (best-minus-mean gap 0.067 vs 0.093). Handing the user ADRank's top three picks instead of one halves this gap with no method change: regret@3 = 0.020 ± 0.004.
-
-**Deep detectors.** We re-run with AutoEncoder and DeepSVDD added (an 11-detector panel) on a matched spot-check (7-8 datasets per modality, single seed, K = 30 regimes) and compare against the classical 9-detector panel on the same datasets and config (Table 6). The headline holds: auto-calibrated ADRank still cuts regret 85-94% below random with the deep detectors in the panel.
-
-<table>
-<thead><tr><th>Modality</th><th>9 detectors (classical)</th><th>11 detectors (+ deep)</th><th>Random</th></tr></thead>
-<tbody>
-<tr><td>Tabular</td><td>0.009 (−92%)</td><td>0.015 (−87%)</td><td>0.117</td></tr>
-<tr><td>Image (CV)</td><td>0.005 (−94%)</td><td>0.012 (−85%)</td><td>0.079</td></tr>
-<tr><td>Text (NLP)</td><td>0.003 (−97%)</td><td>0.005 (−94%)</td><td>0.084</td></tr>
-<tr><td>Time-series</td><td>0.002 (−90%)</td><td>0.002 (−88%)</td><td>0.019</td></tr>
-</tbody>
-</table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 6.</b> regret@1 (absolute, in AUC points; parenthetical is the reduction versus random) on the same datasets and config, classical vs deep-augmented panel, single seed. Adding two deep detectors leaves the reduction at 85-94%. The small absolute rise (e.g. 0.009 to 0.015 on tabular) reflects a harder ranking problem, not a failure: there are two more detectors to rank and they are competitive, taking the true-best slot on three datasets (AutoEncoder once, DeepSVDD twice), so a near-miss between strong detectors costs a little regret while remaining far below random.</div>
 
 **A structural ceiling, and candidate fixes.** The residual gap to the labels-based oracle (largest on DAMI, 0.040 vs 0.024) has a single cause: cluster-holdout pseudo-anomalies are <em>local</em>. ADRank picks a local-density detector (LOF/KNN/CBLOF) on 98% of DAMI dataset-seed cases, but the true best is local on only 48%; when the true best is a global detector (HBOS/COPOD/ECOD/PCA), no cluster-based regime in the bank can make it win, and the best-achievable-in-bank regret on those cases (0.039) is 5× that on local-best cases (0.008). The two clustering ablations that follow (global-tail regime and deep clustering) run on the nine DAMI datasets that exclude the 1555-dimensional InternetAds, on which k-means auto-calibrated regret is 0.034. The natural remedy, adding a global-tail pseudo-anomaly regime (points in the marginal tails or far from the centroid, rather than held-out clusters), does not help and slightly hurts: DAMI regret rises from 0.034 to 0.036-0.045 as such regimes are added. The mechanism is instructive: a global-tail task is high-variance (marginal detectors ace it), so the discriminative weight over-trusts it, but it is not truth-aligned, so it drags the pick toward marginal detectors even when they are wrong. The label-free weighting cannot distinguish a high-variance-but-misaligned regime from an informative one.
 
@@ -246,7 +181,7 @@ A second candidate fix, replacing the PCA-then-MiniBatchKMeans latent and cluste
 
 The remaining ceiling is partly closed by a global regime that avoids the over-trust failure above. Where the global-tail regime mixed marginal and centroid-distance holdouts and was high-variance, a per-feature marginal-tail regime (hold out the extreme tail of a single raw feature) is low-variance, so the discriminative weight does not over-trust it. Added to the bank it is safe in distribution, no ADBench or DAMI dataset among 32 worsens by more than 0.001, and it significantly helps out of distribution where the best detector is marginal: on 164 held-out OddBench datasets it cuts mean regret from 0.102 to 0.090 (paired p = 0.006), concentrated on the global-best losers it targets (0.228 to 0.196). It does not reach datasets whose best detector is distributional rather than marginal (DAMI Annthyroid and WDBC are unchanged), so that part of the ceiling remains open. A label-free trust signal for regimes would close the rest, and a partial one already exists: cross-regime top-1 agreement predicts realized regret on the hard (DAMI, tabular) datasets (high-agreement half 0.030 vs 0.049), giving a per-dataset confidence flag.
 
-### 5.8 The baseline that matters: fixed detectors, in and out of distribution
+### 5.5 The baseline that matters: fixed detectors, in and out of distribution
 
 Random selection is a weak yardstick. The decision a practitioner actually faces is which single detector to commit to across all their datasets, so the demanding baseline is the best fixed detector, not a coin flip. We compare ADRank against every fixed detector, both in-distribution (ADBench, DAMI) and on a frozen external benchmark it never saw during development.
 
@@ -260,7 +195,7 @@ Random selection is a weak yardstick. The decision a practitioner actually faces
 <tr><td>DAMI (10)</td><td>0.040</td><td>0.067</td><td>0.032</td><td>0.067</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 7.</b> Auto-calibrated ADRank versus fixed-detector baselines, mean regret@1 over each modality's datasets and five seeds. The best-fixed column is LOF, computed per seed like the other columns. p is a paired Wilcoxon test of ADRank against always-IForest. ADRank significantly beats the common IForest default on image, text, and tabular data, matches or beats the strongest fixed detector (LOF) on the four ADBench modalities, and is statistically indistinguishable from it on DAMI (paired p = 0.63, n = 10).</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 5.</b> Auto-calibrated ADRank versus fixed-detector baselines, mean regret@1 over each modality's datasets and five seeds. The best-fixed column is LOF, computed per seed like the other columns. p is a paired Wilcoxon test of ADRank against always-IForest. ADRank significantly beats the common IForest default on image, text, and tabular data, matches or beats the strongest fixed detector (LOF) on the four ADBench modalities, and is statistically indistinguishable from it on DAMI (paired p = 0.63, n = 10).</div>
 
 Against the detector a practitioner would most plausibly reach for, Isolation Forest, ADRank cuts regret significantly on image (p = 4e-6), text (p = 5e-4), and tabular (p = 0.01) data, and it matches or beats the best fixed detector in the panel (LOF) on the four ADBench modalities without knowing in advance that LOF is the one to pick. We then freeze the method entirely (the smallest+random+hard regime bank, K in {30, 50}, discriminative weighting, no tuning) and run it on 260 OddBench [22] datasets hash-sampled by name and never used in any development step, of which 187 pass the fixed suitability filter (200 ≤ n ≤ 50000, d ≤ 500, anomaly rate in [0.005, 0.35]). Frozen ADRank cuts regret versus random by 38% in the mean and 48% in the per-dataset median, beating random on 134 of 187 datasets (paired Wilcoxon p = 1e-10).
 
@@ -276,11 +211,11 @@ Against the detector a practitioner would most plausibly reach for, Isolation Fo
 <tr><td>always-HBOS / CBLOF / LODA</td><td>0.167 / 0.199 / 0.240</td><td>beaten decisively</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 8.</b> Frozen ADRank versus all nine fixed detectors on 187 unseen OddBench datasets. ADRank has the lowest mean regret of any label-free strategy: it ties the three strongest fixed detectors (IForest, KNN, PCA; PCA scored on the 165 datasets where it is defined) and significantly beats the other six.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 6.</b> Frozen ADRank versus all nine fixed detectors on 187 unseen OddBench datasets. ADRank has the lowest mean regret of any label-free strategy: it ties the three strongest fixed detectors (IForest, KNN, PCA; PCA scored on the 165 datasets where it is defined) and significantly beats the other six.</div>
 
-Two points make this the paper's central performance claim. First, ADRank has the lowest mean regret of any label-free strategy on both the in-distribution modalities and the 187 unseen datasets: no single fixed detector matches it across settings. Second, the best fixed detector <em>changes</em> between benchmarks, LOF is strongest in-distribution, Isolation Forest on OddBench, so committing to any one detector in advance is unsafe, and ADRank attains the best-fixed level on each benchmark without knowing which detector that is. On OddBench it ties that benchmark's best fixed detector (IForest, p = 0.51) rather than beating it; matching the dominant detector is the ceiling of any selector when a single detector dominates a corpus. The 53 datasets where ADRank trails random share the structural cause of Section 5.7: each has a global or marginal detector at near-perfect AUC (HBOS or PCA at 1.000 on DoctorVisits, CampaignOutcome, and similar single-feature-threshold labels) that cluster-holdout's local pseudo-anomalies cannot construct. The failure is the local-versus-global ceiling, now confirmed out of distribution, not a breakdown of the ranking signal.
+Two points make this the paper's central performance claim. First, ADRank has the lowest mean regret of any label-free strategy on both the in-distribution modalities and the 187 unseen datasets: no single fixed detector matches it across settings. Second, the best fixed detector <em>changes</em> between benchmarks, LOF is strongest in-distribution, Isolation Forest on OddBench, so committing to any one detector in advance is unsafe, and ADRank attains the best-fixed level on each benchmark without knowing which detector that is. On OddBench it ties that benchmark's best fixed detector (IForest, p = 0.51) rather than beating it; matching the dominant detector is the ceiling of any selector when a single detector dominates a corpus. The 53 datasets where ADRank trails random share the structural cause of Section 5.4: each has a global or marginal detector at near-perfect AUC (HBOS or PCA at 1.000 on DoctorVisits, CampaignOutcome, and similar single-feature-threshold labels) that cluster-holdout's local pseudo-anomalies cannot construct. The failure is the local-versus-global ceiling, now confirmed out of distribution, not a breakdown of the ranking signal.
 
-**One number for the whole comparison: selection skill.** The skill score $S$ (Section 4) collapses each benchmark to the fraction of the achievable random-to-oracle improvement a method captures. Table 9 reports it for every label-free strategy across all six benchmarks, each on a common dataset panel so the methods are scored on identical data. On frozen OddBench ADRank scores $S = 0.38$ (95% dataset-bootstrap CI [0.27, 0.47]). The pattern is the point: ADRank has the highest worst-case skill of any method (0.38, its minimum across the six), while the popular Isolation Forest default and both internal metrics (EM, MV) each fall below random ($S < 0$) on at least one benchmark. The local-density detectors LOF and KNN stay positive everywhere too, but at a lower floor (0.21 and 0.23), and neither takes the top skill on tabular or OddBench, the two benchmarks where selection is hardest, which ADRank alone does.
+**One number for the whole comparison: selection skill.** The skill score $S$ (Section 4) collapses each benchmark to the fraction of the achievable random-to-oracle improvement a method captures. Table 7 reports it for every label-free strategy across all six benchmarks, each on a common dataset panel so the methods are scored on identical data. On frozen OddBench ADRank scores $S = 0.38$ (95% dataset-bootstrap CI [0.27, 0.47]). The pattern is the point: ADRank has the highest worst-case skill of any method (0.38, its minimum across the six), while the popular Isolation Forest default and both internal metrics (EM, MV) each fall below random ($S < 0$) on at least one benchmark. The local-density detectors LOF and KNN stay positive everywhere too, but at a lower floor (0.21 and 0.23), and neither takes the top skill on tabular or OddBench, the two benchmarks where selection is hardest, which ADRank alone does.
 
 <table>
 <thead><tr><th>Method</th><th>OddBench</th><th>Tabular</th><th>Image</th><th>Text</th><th>Time-series</th><th>DAMI</th><th>worst</th></tr></thead>
@@ -293,15 +228,15 @@ Two points make this the paper's central performance claim. First, ADRank has th
 <tr><td>MV [1]</td><td>—</td><td>0.66</td><td>-0.07</td><td>0.89</td><td>0.76</td><td>-0.26</td><td>-0.26</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 9.</b> Selection skill <em>S</em> (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 7.</b> Selection skill <em>S</em> (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
 
-### 5.9 Does ADRank need real anomalies in its input?
+### 5.6 Does ADRank need real anomalies in its input?
 
 ADRank clusters and holds out subsets of an unlabeled dataset that, in the benchmarks, contains genuine (unlabeled) anomalies. A natural concern is whether the method draws its ranking signal from those hidden anomalies rather than from the normal structure. We test this directly: for each of 24 ADBench tabular datasets we give ADRank a selection input consisting of all normal points plus a controlled fraction of the real anomalies (0%, 0.5%, 1%, 2%, 5%, and the natural rate), unlabeled, while the true ranking is computed by the fixed protocol and does not depend on that fraction. At 0% the selection input is pure normal data.
 
 <figure>
 <img src="figures/fig5_contamination.png" alt="Regret versus the fraction of real anomalies revealed in ADRank's selection input; the curve is flat and far below random">
-<figcaption><b>Figure 5.</b> Regret@1 versus the fraction of real anomalies present in ADRank's unlabeled selection input, mean over 24 tabular datasets and three seeds (error bars are the standard error over datasets). The curve is flat: regret at 0% real anomalies (pure normals, 0.024) is indistinguishable from regret at the natural contamination rate (0.022), and every level sits 4-6× below the random-pick baseline (0.099).</figcaption>
+<figcaption><b>Figure 4.</b> Regret@1 versus the fraction of real anomalies present in ADRank's unlabeled selection input, mean over 24 tabular datasets and three seeds (error bars are the standard error over datasets). The curve is flat: regret at 0% real anomalies (pure normals, 0.024) is indistinguishable from regret at the natural contamination rate (0.022), and every level sits 4-6× below the random-pick baseline (0.099).</figcaption>
 </figure>
 
 The regret curve is flat across contamination levels (0.016-0.026) and 4-6× below random everywhere. Critically, regret at 0% real anomalies (0.024) is within 0.002 of the natural rate (0.022). ADRank therefore does not rely on hidden real anomalies: it recovers the detector ranking from the normal cluster geometry alone, and works equally in the contaminated-unlabeled and the normal-only regimes.
@@ -310,9 +245,9 @@ The regret curve is flat across contamination levels (0.016-0.026) and 4-6× bel
 
 **Why regret, and why the instability was in the metric.** Our first evaluation used thresholded Spearman ρ and produced a text result that swung from 0.68 to 0.34 between configurations. Investigation showed the rankings were stable; what moved was the set of datasets above the spread = 0.10 cutoff, several of which sit right at the boundary. Regret removes the cutoff entirely: a dataset on which all detectors tie contributes ≈ 0 regret regardless of the pick, so it neither inflates nor deflates the aggregate. Under regret the seed-to-seed standard deviation is ≤ 0.010 everywhere, and the ordering of modalities (time-series and image best, tabular close, text weaker under a single fixed regime) is stable. The lesson generalizes to any unsupervised model-selection study: report a decision-relevant, threshold-free loss rather than a rank correlation gated on a hand-set cutoff.
 
-**When ADRank helps.** With auto-calibration the method selects a near-best detector on all four ADBench modalities (regret@1 ≤ 0.020, 78-93% below random, within 0.01 of the labels-based oracle), and the one modality a single fixed regime under-served, text, is brought in line by the same label-free weighting. The strength has clear bounds: on the DAMI benchmark the oracle gap is larger (41% reduction), and on 187 unseen OddBench datasets ADRank ties rather than beats that benchmark's best fixed detector and trails random on 53 of them. These bounds share one cause, datasets whose best detector is global rather than local (Section 5.7): where the best detector is a local-density method ADRank reliably finds it, and where it is global, cluster-holdout cannot yet construct the task.
+**When ADRank helps.** With auto-calibration the method selects a near-best detector on all four ADBench modalities (regret@1 ≤ 0.020, 78-93% below random, within 0.01 of the labels-based oracle), and the one modality a single fixed regime under-served, text, is brought in line by the same label-free weighting. The strength has clear bounds: on the DAMI benchmark the oracle gap is larger (41% reduction), and on 187 unseen OddBench datasets ADRank ties rather than beats that benchmark's best fixed detector and trails random on 53 of them. These bounds share one cause, datasets whose best detector is global rather than local (Section 5.4): where the best detector is a local-density method ADRank reliably finds it, and where it is global, cluster-holdout cannot yet construct the task.
 
-**Why the discriminative weight works.** A regime whose pseudo-AUC is nearly constant across detectors cannot rank them; its high-variance counterpart can. Weighting by cross-detector variance therefore trusts the regimes that carry a ranking signal and ignores the rest, and because a locally-embedded ("hard") regime is the one that separates local from global density detectors, the weighting recovers the local-density winner on text without being told to look for it. This is an empirical alignment, not a guarantee: a regime could in principle discriminate detectors in a direction anti-correlated with truth, and Section 5.7 exhibits exactly that failure for a global-tail regime outside the cluster-holdout bank; within the bank, across 69 datasets, the high-variance regimes were the trustworthy ones.
+**Why the discriminative weight works.** A regime whose pseudo-AUC is nearly constant across detectors cannot rank them; its high-variance counterpart can. Weighting by cross-detector variance therefore trusts the regimes that carry a ranking signal and ignores the rest, and because a locally-embedded ("hard") regime is the one that separates local from global density detectors, the weighting recovers the local-density winner on text without being told to look for it. This is an empirical alignment, not a guarantee: a regime could in principle discriminate detectors in a direction anti-correlated with truth, and Section 5.4 exhibits exactly that failure for a global-tail regime outside the cluster-holdout bank; within the bank, across 69 datasets, the high-variance regimes were the trustworthy ones.
 
 **Why consensus fails but cluster-holdout works.** Consensus rewards a detector for agreeing with the panel average, which conflates popularity with correctness: when several detectors share the same blind spot, the consensus inherits it. Cluster-holdout instead poses each detector an externally defined task whose answer key (the held-out cluster identity) is independent of the detectors' collective opinion, so a detector cannot score well merely by being typical.
 
@@ -320,15 +255,88 @@ The regret curve is flat across contamination levels (0.016-0.026) and 4-6× bel
 
 ## 7. Limitations
 
-The pseudo-anomaly analogy is imperfect, and its principal limit is structural (Section 5.7): cluster-holdout regimes are local, so datasets whose best detector is global are under-served. Three candidate fixes were tested. A high-variance global-tail regime (mixing marginal and centroid-distance holdouts) fails because the label-free weighting over-trusts it. A low-variance per-feature marginal-tail regime does not trigger that over-trust: it is safe in distribution (no ADBench or DAMI dataset among 32 worsens by more than 0.001) and significantly reduces regret out of distribution where the best detector is marginal (164 held-out OddBench datasets, 0.102 to 0.090, p = 0.006), partially closing the ceiling.
+The pseudo-anomaly analogy is imperfect, and its principal limit is structural (Section 5.4): cluster-holdout regimes are local, so datasets whose best detector is global are under-served. Three candidate fixes were tested. A high-variance global-tail regime (mixing marginal and centroid-distance holdouts) fails because the label-free weighting over-trusts it. A low-variance per-feature marginal-tail regime does not trigger that over-trust: it is safe in distribution (no ADBench or DAMI dataset among 32 worsens by more than 0.001) and significantly reduces regret out of distribution where the best detector is marginal (164 held-out OddBench datasets, 0.102 to 0.090, p = 0.006), partially closing the ceiling.
 
-Replacing PCA-plus-k-means with a jointly-learned deep clustering (VaDE) is safe once guarded but not a decisive win: gating on the label-free effective-cluster count removes its catastrophic collapses, yet the guarded hybrid does not significantly beat k-means across 34 datasets (0.023 vs 0.027, paired p = 0.23), so we keep the simpler default. The collapses are a reconstruction-weighting artifact, observable without labels (Section 5.7). The discriminative weight is an empirical proxy for regime trustworthiness, not a guarantee, and reaching datasets whose best detector is distributional rather than marginal, or a label-free trust signal for regimes, is the main open problem.
+Replacing PCA-plus-k-means with a jointly-learned deep clustering (VaDE) is safe once guarded but not a decisive win: gating on the label-free effective-cluster count removes its catastrophic collapses, yet the guarded hybrid does not significantly beat k-means across 34 datasets (0.023 vs 0.027, paired p = 0.23), so we keep the simpler default. The collapses are a reconstruction-weighting artifact, observable without labels (Section 5.4). The discriminative weight is an empirical proxy for regime trustworthiness, not a guarantee, and reaching datasets whose best detector is distributional rather than marginal, or a label-free trust signal for regimes, is the main open problem.
 
-The method requires an expressive fixed-length representation: on high-dimensional deep embeddings the `smallest`-cluster selection degrades and the smallest+random ensemble is needed, and on time-series a richer window descriptor is needed than a handful of summary statistics. The evaluation uses fixed default hyperparameters per detector; combining ADRank with per-detector hyperparameter search is left to future work. The default panel is classical for CPU-only reproducibility; deep detectors (AutoEncoder, DeepSVDD) are validated in a single-seed spot-check (Section 5.7) rather than the full five-seed sweep. Confidence intervals are derived from five seeds; regret standard deviations are already small (≤ 0.010), so more seeds would tighten them marginally without changing the ordering of modalities.
+The method requires an expressive fixed-length representation: on high-dimensional deep embeddings the `smallest`-cluster selection degrades and the smallest+random ensemble is needed, and on time-series a richer window descriptor is needed than a handful of summary statistics. The evaluation uses fixed default hyperparameters per detector; combining ADRank with per-detector hyperparameter search is left to future work. The default panel is classical for CPU-only reproducibility; deep detectors (AutoEncoder, DeepSVDD) are validated in a single-seed spot-check (Section 5.4) rather than the full five-seed sweep. Confidence intervals are derived from five seeds; regret standard deviations are already small (≤ 0.010), so more seeds would tighten them marginally without changing the ordering of modalities.
 
 ## 8. Conclusion
 
 For the purpose of ranking anomaly detectors, held-out clusters of the unlabeled data behave enough like real anomalies to stand in for them. Running a bank of pseudo-anomaly regimes and weighting each by how strongly it separates the detectors, a purely label-free signal, cuts detector-selection regret by 78-93% relative to random on tabular, image, text, and time-series data, within 0.01 of AUC of a labels-based oracle, with a seed standard deviation at or below 0.002. Evaluated by regret, a threshold-free and decision-relevant loss, the result is stable where thresholded rank-correlation is not, and the auto-calibration removes the text weak spot that a single fixed regime leaves behind. The method needs no labels, no meta-training, and no GPU. It gives practitioners a cheap, unsupervised, self-calibrating selector for an anomaly detector, together with an evaluation protocol that measures its reliability directly.
+
+
+## Appendix A. Ablations and per-dataset behavior
+
+### A.1 Cluster-selection strategy and rank aggregation
+
+We ablate three axes: cluster-selection strategy (smallest clusters only, uniform random, composite "small + far from other centroids + low local density"), aggregation (mean, Borda, variance-weighted), and $K$ (30 or 50). Table A.1 shows the top rows on the spread ≥ 0.10 subset.
+
+<table>
+<thead><tr><th>Aggregation</th><th>Selection</th><th>K</th><th>ρ mean</th><th>ρ median</th><th>top-1</th><th>top-3</th></tr></thead>
+<tbody>
+<tr><td><b>mean</b></td><td><b>smallest</b></td><td><b>30</b></td><td><b>0.599</b></td><td><b>0.733</b></td><td><b>0.353</b></td><td><b>0.647</b></td></tr>
+<tr><td>varweight</td><td>smallest</td><td>30</td><td>0.597</td><td>0.709</td><td>0.412</td><td>0.647</td></tr>
+<tr><td>borda</td><td>smallest</td><td>30</td><td>0.592</td><td>0.648</td><td>0.412</td><td>0.608</td></tr>
+<tr><td>mean</td><td>random</td><td>30</td><td>0.579</td><td>0.673</td><td>0.118</td><td>0.627</td></tr>
+<tr><td>mean</td><td>composite</td><td>30</td><td>0.473</td><td>0.600</td><td>0.353</td><td>0.569</td></tr>
+<tr><td>mean</td><td>composite</td><td>50</td><td>0.458</td><td>0.515</td><td>0.235</td><td>0.608</td></tr>
+</tbody>
+</table>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table A.1.</b> Ablation on the spread ≥ 0.10 subset, single seed. Smallest-cluster selection beats both random and the hand-designed composite. Aggregation choice is nearly irrelevant.</div>
+
+Two findings against our prior expectations:
+
+- **The hand-designed cluster selector was the worst of the three.** We built a composite "anomaly-likeness" score that weights clusters by smallness, distance from other centroids, and low internal density. We expected it to concentrate on realistic anomalies. It performed ~0.13 ρ below simple smallest-first selection on the spread ≥ 0.10 subset. The reason: composite over-weights far, low-density clusters, and every detector separates those near-perfectly, killing the discriminative variance needed for ranking. Smallest-cluster selection samples pseudo-anomalies at a range of difficulty levels, some near the manifold boundary and some inside, which is what separates detectors. Design lesson: when picking a pseudo-negative distribution for model selection, calibrate difficulty on the middle, not the extremes.
+- **Aggregation barely matters.** Mean, Borda over per-subset ranks, and variance-weighted mean all fall within ±0.02 ρ. Ship the simplest option.
+
+### A.2 Per-dataset predicted-versus-true rank
+
+<figure>
+<img src="figures/fig3_scatter.png" alt="Per-dataset scatter of ADRank-predicted rank against true rank">
+<figcaption><b>Figure A.1.</b> Predicted rank (ADRank) vs true rank per detector, one panel per dataset. Dashed grey identity line. Datasets where the scatter clusters near the diagonal (vowels, magic.gamma, optdigits, satellite, Pima, PageBlocks, satimage-2, Waveform) contribute the bulk of the aggregate signal. Datasets with saturated true AUC (WBC, WDBC, mammography) show noise-dominated tie-breaking.</figcaption>
+</figure>
+
+## Appendix B. Robustness checks
+
+### B.1 Leave-one-detector-out panel robustness
+
+The drop-one analysis runs on the original 10-detector panel (the nine detectors of Section 4 plus OCSVM): we recompute ADRank ρ using only 9 of the 10 detectors, dropping each one in turn (Table B.1). Baseline ρ = 0.599 on the spread ≥ 0.10 subset with all 10.
+
+<table>
+<thead><tr><th>Dropped</th><th>ρ_spread10</th><th>Δ vs baseline</th></tr></thead>
+<tbody>
+<tr><td>IForest</td><td>0.557</td><td>-0.042</td></tr>
+<tr><td>KNN</td><td>0.568</td><td>-0.031</td></tr>
+<tr><td>PCA</td><td>0.582</td><td>-0.017</td></tr>
+<tr><td>ECOD</td><td>0.583</td><td>-0.016</td></tr>
+<tr><td>LODA</td><td>0.602</td><td>+0.003</td></tr>
+<tr><td>LOF</td><td>0.610</td><td>+0.011</td></tr>
+<tr><td>CBLOF</td><td>0.622</td><td>+0.023</td></tr>
+<tr><td>OCSVM</td><td>0.629</td><td>+0.030</td></tr>
+<tr><td>COPOD</td><td>0.640</td><td>+0.041</td></tr>
+<tr><td>HBOS</td><td>0.642</td><td>+0.043</td></tr>
+</tbody>
+</table>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table B.1.</b> Drop-one detector robustness. ρ stays in [0.557, 0.642] under any single-detector removal. Dropping the strongest single detector (IForest) is the largest loss but leaves ρ well above the consensus baseline.</div>
+
+The ranking is stable to detector-panel choice. Dropping the strongest single detector (IForest) is the largest cost and still leaves ρ = 0.557, above the consensus baseline by ~0.7. Removing OCSVM or HBOS improves ρ marginally, indicating they contribute more noise than signal to the pseudo-ranking under this panel and dataset mix; the OCSVM row is the panel-removal check referenced in Section 4.
+
+### B.2 Deep detectors
+
+**Deep detectors.** We re-run with AutoEncoder and DeepSVDD added (an 11-detector panel) on a matched spot-check (7-8 datasets per modality, single seed, K = 30 regimes) and compare against the classical 9-detector panel on the same datasets and config (Table B.2). The headline holds: auto-calibrated ADRank still cuts regret 85-94% below random with the deep detectors in the panel.
+
+<table>
+<thead><tr><th>Modality</th><th>9 detectors (classical)</th><th>11 detectors (+ deep)</th><th>Random</th></tr></thead>
+<tbody>
+<tr><td>Tabular</td><td>0.009 (−92%)</td><td>0.015 (−87%)</td><td>0.117</td></tr>
+<tr><td>Image (CV)</td><td>0.005 (−94%)</td><td>0.012 (−85%)</td><td>0.079</td></tr>
+<tr><td>Text (NLP)</td><td>0.003 (−97%)</td><td>0.005 (−94%)</td><td>0.084</td></tr>
+<tr><td>Time-series</td><td>0.002 (−90%)</td><td>0.002 (−88%)</td><td>0.019</td></tr>
+</tbody>
+</table>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table B.2.</b> regret@1 (absolute, in AUC points; parenthetical is the reduction versus random) on the same datasets and config, classical vs deep-augmented panel, single seed. Adding two deep detectors leaves the reduction at 85-94%. The small absolute rise (e.g. 0.009 to 0.015 on tabular) reflects a harder ranking problem, not a failure: there are two more detectors to rank and they are competitive, taking the true-best slot on three datasets (AutoEncoder once, DeepSVDD twice), so a near-miss between strong detectors costs a little regret while remaining far below random.</div>
+
 
 ## References
 
