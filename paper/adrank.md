@@ -290,7 +290,7 @@ Two points make this the paper's central performance claim. First, ADRank has th
 <tr><td>MV [1]</td><td>—</td><td>0.66</td><td>-0.07</td><td>0.89</td><td>0.76</td><td>-0.26</td><td>-0.26</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 9.</b> Selection skill $S$ (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 9.</b> Selection skill <em>S</em> (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
 
 ### 5.9 Does ADRank need real anomalies in its input?
 

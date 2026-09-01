@@ -87,8 +87,10 @@ KATEX = """<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.
 
 
 DOCXLINKS = """<div class="docxlinks">
-<a class="docxlink" href="adrank.pdf" download>&#8595; PDF</a>
-<a class="docxlink" href="adrank.docx" download>&#8595; Word (.docx)</a>
+<a class="docxlink" href="adrank.pdf" download>&#8595; PDF (1-col)</a>
+<a class="docxlink" href="adrank-2col.pdf" download>&#8595; PDF (2-col)</a>
+<a class="docxlink" href="adrank.docx" download>&#8595; Word (1-col)</a>
+<a class="docxlink" href="adrank-2col.docx" download>&#8595; Word (2-col)</a>
 </div>
 """
 

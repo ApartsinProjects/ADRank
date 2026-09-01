@@ -81,8 +81,10 @@ footer{margin-top:3rem;padding-top:.9rem;border-top:.5px solid var(--rule);font-
 </head>
 <body>
 <div class="docxlinks">
-<a class="docxlink" href="adrank.pdf" download>&#8595; PDF</a>
-<a class="docxlink" href="adrank.docx" download>&#8595; Word (.docx)</a>
+<a class="docxlink" href="adrank.pdf" download>&#8595; PDF (1-col)</a>
+<a class="docxlink" href="adrank-2col.pdf" download>&#8595; PDF (2-col)</a>
+<a class="docxlink" href="adrank.docx" download>&#8595; Word (1-col)</a>
+<a class="docxlink" href="adrank-2col.docx" download>&#8595; Word (2-col)</a>
 </div>
 <h1>Ranking Anomaly Detectors from Normal Data Alone</h1>
 
@@ -322,7 +324,7 @@ and regret@3 uses the best of ADRank's top three picks. Regret is <strong>thresh
 <tr><td>MV [1]</td><td>—</td><td>0.66</td><td>-0.07</td><td>0.89</td><td>0.76</td><td>-0.26</td><td>-0.26</td></tr>
 </tbody>
 </table>
-<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 9.</b> Selection skill $S$ (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
+<div style="text-align:center;font-size:9.5pt;color:var(--fg-soft);margin-top:-.5rem"><b>Table 9.</b> Selection skill <em>S</em> (pooled, Section 4; 1 = oracle, 0 = random, negative = worse than random) for each label-free strategy, computed on a common per-benchmark dataset panel so all methods are scored on identical datasets. "worst" is each method's minimum across the six benchmarks. ADRank has the highest worst-case skill; Isolation Forest and the EM/MV internal metrics each fall below random on at least one benchmark. EM/MV were not run on the external OddBench.</div>
 
 <h3 id="59-does-adrank-need-real-anomalies-in-its-input">5.9 Does ADRank need real anomalies in its input?</h3>
 <p>ADRank clusters and holds out subsets of an unlabeled dataset that, in the benchmarks, contains genuine (unlabeled) anomalies. A natural concern is whether the method draws its ranking signal from those hidden anomalies rather than from the normal structure. We test this directly: for each of 24 ADBench tabular datasets we give ADRank a selection input consisting of all normal points plus a controlled fraction of the real anomalies (0%, 0.5%, 1%, 2%, 5%, and the natural rate), unlabeled, while the true ranking is computed by the fixed protocol and does not depend on that fraction. At 0% the selection input is pure normal data.</p>
