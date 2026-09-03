@@ -55,6 +55,9 @@ def main():
     tex = re.sub(r"\\section\{References\}\\label\{references\}\n?", "", tex)
     # journals NUMBER Limitations (converter stars it per the ACL convention).
     tex = tex.replace("\\section*{Limitations}", "\\section{Limitations}")
+    # availability is unnumbered back matter, not a numbered section.
+    tex = tex.replace("\\section{Data and code availability}",
+                      "\\section*{Data and code availability}")
     # strip any leaked download-badge hrefs; map stray unicode
     tex = re.sub(r"\\href\{nomas[^}]*\}\{[^}]*\}", "", tex)
     tex = uni(tex)
