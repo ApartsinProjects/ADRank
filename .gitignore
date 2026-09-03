@@ -23,3 +23,9 @@ _tex/
 # Large result binaries and per-cell parts (regenerate via scripts/)
 results/*.parquet
 results/oddbench_parts/
+
+# HADB benchmark corpora (re-fetch with scripts/fetch_*.py; UCR is unlicensed - do not redistribute)
+data/oddbench/
+data/ovrbench/
+data/ucr/
+data/tsbad/
