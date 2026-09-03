@@ -299,6 +299,8 @@ Two findings against our prior expectations:
 
 ### A.2 Per-dataset predicted-versus-true rank
 
+The per-dataset view shows where the aggregate signal comes from. Figure A.1 plots NoMaS-predicted rank against true rank for every detector, one panel per dataset: the datasets whose scatter tracks the identity line carry the bulk of the signal, while those with saturated true AUC contribute noise-dominated tie-breaking.
+
 <figure>
 <img src="figures/fig3_scatter.png" alt="Per-dataset scatter of NoMaS-predicted rank against true rank">
 <figcaption><b>Figure A.1.</b> Predicted rank (NoMaS) vs true rank per detector, one panel per dataset. Dashed grey identity line. Datasets where the scatter clusters near the diagonal (vowels, magic.gamma, optdigits, satellite, Pima, PageBlocks, satimage-2, Waveform) contribute the bulk of the aggregate signal. Datasets with saturated true AUC (WBC, WDBC, mammography) show noise-dominated tie-breaking.</figcaption>
