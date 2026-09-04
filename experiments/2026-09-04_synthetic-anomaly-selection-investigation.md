@@ -222,6 +222,58 @@ This is a genuine fork in the benchmark's identity, left open:
 - switch to histogram triviality -> multivariate-hard-only benchmark, synthetic/local wins,
   but no local-vs-global story.
 
+## Router / measured-locality / family-fair evaluation (2026-09-04)
+
+Follow-up thread on whether to *route* local-vs-global per dataset, and how to evaluate fairly.
+
+### β-router and matched selector are a wash on the pooled metric
+- Density-reweighted resampling at exponent β spans the probe from typical/multivariate
+  (β=+1, local-type synthetics) to marginal-tail (β=-4, global-type). Per dataset, `a1[d]`/`a4[d]`
+  = each detector's separation AUC on the β=+1 / β=-4 synthetics.
+- **`local_ev = max_d a1[d] - max_d a4[d]`** is a label-free dataset descriptor: high = local-type
+  synthetics more separable -> local family wins; low = marginal-tail wins. It predicts the true
+  winning family at **AUC 0.795**, vs 0.62 for the best static multimodality scalar.
+- A **matched selector** (route to argmax `a1` if `local_ev>τ` else argmax `a4`, τ=-0.14 calibrated)
+  and the **max-spread router** both FAIL to beat fixed β=1 on the pooled (micro) regret: holdout
+  matched 0.121 vs β1 0.124, p=0.500 (same pick on 29/30 datasets). Reason: β=1 is already near-optimal
+  on the majority (local) datasets, so routing only changes the pick on the global minority.
+- **Fixed β=1 synthetic remains the simple method that beats EM** (holdout p=0.023; representative p=0.003).
+
+### Family-fair (macro) evaluation flips the router verdict
+The pooled mean is a MICRO-average dominated by the local-heavy composition, so it rewards matching
+the majority family. Under a **family-balanced macro-average** (weight local and global equally):
+- holdout macro: **matched 0.136 < β1 0.162 < EM 0.206**.
+- full-73 stratified bootstrap: macro(matched)-macro(EM) = -0.064, 95% CI [-0.121,-0.018], P=0.997 (solid);
+  macro(matched)-macro(β1) = -0.028, 95% CI [-0.077,+0.008], P=0.917 (suggestive, global-stratum-limited).
+- Per-family (holdout): global n=9 matched 0.176 vs β1 0.258 (matched rescues); local n=21 matched 0.097
+  vs β1 0.067 (matched slightly over-routes). The gains/costs cancel in micro, separate in macro.
+- **Recommendation:** adopt the family-balanced macro-average as the benchmark's primary metric,
+  report per-family tables, run the full 199-set benchmark to settle matched-vs-β1 at 95%.
+
+### Multimodality is a WEAK, non-visual axis; measured locality is the strong one (162 datasets)
+`MODALITY_PERF.csv` (all tabular+uni-TS, detectors fit on train, scored on val-normals vs synthetics):
+Spearman of each descriptor with the (best-local - best-global) ap_norm family advantage:
+- silhouette +0.13, GMM BIC-gain +0.13, bimodality-coef -0.00, **local_ev +0.38**.
+- So static/visual multimodality barely organizes family dominance (why the density heatmap shows no
+  crisp clusters - modes overlap); the measured probe organizes it ~3× better.
+- Splitting methods by static-modality median shows ~no difference (β1 0.14 both groups). Against
+  `local_ev` bins the methods separate: β1 degrades toward unimodal/global, matched cushions it,
+  EM flat-poor. Figures: `FIG_scatter_panels.png` (detector + ranking scatter), `FIG_modality_illustration.png`
+  (mode-separating projection, the robust way to view multimodality), `FIG_umap_two_examples.png`.
+
+### Mechanism from per-dataset EDA (`inspect_datasets.py`)
+- "Global" here often means low-density in a MULTIMODAL marginal, not a Gaussian tail
+  (UserEventAnomalies: HBOS wins yet anomalies have median max|z|=1.25, 0 features >3σ - histogram
+  rarity, not z-extremeness; vindicates the histogram-filter direction).
+- β=1 also fails on some LOCAL datasets - a synthetic-FIDELITY problem, not routing: DiamondClarity
+  (true-best LOF ap=0.76, β1 picks HBOS ap=-0.03 on a near-tie in a1); RacingMotion (true-best KNN_k3
+  ap=0.99 invisible to every probe). The residual failures are synthetic-vs-real fidelity, which
+  no router fixes.
+
+Scratch scripts (in session scratchpad, not committed): `router_confirm.py`, `multimodality_test.py`,
+`measure_locality.py`, `matched_selector.py` (-> `MATCHED_SELECTOR.csv`), `compute_modality_perf.py`
+(-> `MODALITY_PERF.csv`), `inspect_datasets.py`, `viz_modality2.py`, `make_scatter_panels.py`.
+
 ## Reproduce
 
 Code in `hadb/`, results in `hadb/results/`. Corpora re-fetched with `hadb/fetch_*.py`
