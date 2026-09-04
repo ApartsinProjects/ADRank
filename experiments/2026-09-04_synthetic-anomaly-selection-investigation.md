@@ -326,10 +326,58 @@ loses on macro. CAVEAT / OPEN: MV/consensus/ModelCentrality/HITS are only from t
 (MV 0.220, agreement ~0.278=random), NOT construct-matched on this 162-subset; UDR and a proper IFOREST-R
 are still pending. A complete construct-matched leaderboard with all UOMS baselines is the remaining task.
 
+### FULL construct-matched UOMS leaderboard (162 datasets; `full_leaderboard.py` -> `FULL_LEADERBOARD.csv`)
+All UOMS criteria (em, mv, consensus, model_centrality, hits) are PRECOMPUTED columns in the arm CSVs
+(validation-side, 3-way protocol) - the earlier 292-vs-162 mismatch was only that `hadb_selectors_v2.py`
+used the old manifest. Re-run on the SAME 162 datasets, one common pool, regret on test ap_norm
+(micro | macro=family-balanced); beta=-4 dropped (internal probe, not a method):
+- oracle 0.000 | 0.000
+- **NoMaS matched (ours) 0.134 | 0.147** (vs EM p=0.002, vs MV p=0.001)
+- **NoMaS beta=1 (ours) 0.141 | 0.161** (vs EM p=0.025, vs MV p=0.017)
+- MV 0.188 | 0.185 ; EM 0.195 | 0.192 (EM~MV, p=0.68)
+- consensus/UDR, ModelCentrality, HITS, iforest_random all 0.258-0.261 macro = **NOT distinguishable from
+  random** (vs-random p=0.05-0.20) - they degenerate on normals-only validation, as expected.
+Our two methods are the only ones that beat EM/MV; the agreement methods tie random on the current benchmark.
+(best_fixed LOF_k20's number is pool-sensitive - it falls out of the criteria-restricted common pool on some
+datasets and hits a random fallback; its fair "always LOF_k20" value is ~0.12 micro from `leaderboard.py`.)
+
+### GLOBAL-wins datasets are single-feature / marginal-TRIVIAL (the key benchmark-integrity finding)
+Under the RANKING metric (ap_norm, base-rate-matched), a single best feature vs the best detector
+(`difficulty_ap.py`): local gap +0.138, **global gap -0.020** (a single oracle-selected feature BEATS the
+whole detector pool on global datasets; 71% of global within 0.05 of oracle vs 34% local, p=0.0000). Reason:
+global anomalies are single-feature concentrated, and global detectors DILUTE the one informative feature by
+aggregating all features. (Under AUC the gap was only 0.012 vs 0.100 - AP is the correct, stricter metric.)
+What is special about global datasets (`characterize_global.py`): AXIS-ALIGNED (single-feature AUC collapses
+after a random rotation; AUC-sep 0.72) and LOW feature correlation of the normals (0.22 vs 0.32; AUC-sep 0.71,
+**label-free**). Multimodal-histogram-rarity REFUTED (hist_gain wrong-signed). Why EM still edges the beta=-4
+probe on global (`global_why_em.py`): beta=-4 synthetics match real extremeness (99%) but are non-
+discriminative (every global detector separates a single-feature extreme equally; within-global rho ~0).
+
+### Trivial detector = per-feature CALIBRATED OR (`calibrated_or.py` -> `CALIBRATED_OR.csv`)
+The user's trivial baseline: threshold every feature by ITS OWN rarity (empirical two-sided ECDF tail /
+histogram density), flag on the single most-rare feature (max_j = "at least one threshold met"). Calibration
+matters: naive max|z| OR gets ap_norm 0.202 on global (noise features fire in high-d), calibrated OR gets
+0.302. Multivariate-necessity gap (best_det - OR): local 0.229 vs global 0.083 - the OR nearly solves global
+(single-feature) but leaves a large gap on local (genuinely multivariate). The OR (max) still trails the
+FITTED marginal detector (HBOS sums marginal evidence) by ~0.07, so two trivial tiers exist: single-feature
+(OR/max) and multi-marginal-additive (HBOS/sum).
+
+### Cleaned-benchmark leaderboard (`cleaned_leaderboard.py`) - honest null on margin
+Applying the OR filter (drop mv_gain<0.05: 38 datasets, 14 local + 24 global -> 124 remaining) and re-running:
+matched macro 0.147->0.168, EM 0.192->0.203 - every method gets worse (harder benchmark), and our margin over
+EM SHRINKS slightly (gap 0.045->0.035, p=0.002->0.011) because the filter also removes local datasets where we
+won easily. Our win SURVIVES (matched vs EM p=0.011, vs MV p=0.010; agreement still ~random) but is not
+amplified. So the filter is justified on INTEGRITY grounds (a hard-anomaly benchmark should not contain
+single-feature-trivial datasets), NOT as a way to inflate the result. Filter-2 (marginal-necessity, local-only)
+would inflate the margin by construction (EM collapses on local) - deliberately NOT done. Key point: our lead
+comes from the genuinely-multivariate datasets, which survive filtering.
+
 Scratch scripts (session scratchpad, not committed): `router_confirm.py`, `multimodality_test.py`,
 `measure_locality.py`, `matched_selector.py`, `compute_modality_perf.py`, `inspect_datasets.py`,
 `viz_modality2.py`, `make_scatter_panels.py`, `em_systematic_failure.py`, `shape_anomaly_relation.py`,
-`global_why_em.py`, `elbow_analysis.py`, `grid_beta_frac.py`, `bins_test.py`, `ensemble_test.py`, `leaderboard.py`.
+`global_why_em.py`, `elbow_analysis.py`, `grid_beta_frac.py`, `bins_test.py`, `ensemble_test.py`,
+`leaderboard.py`, `full_leaderboard.py`, `difficulty_test.py`, `difficulty_ap.py`, `characterize_global.py`,
+`marginal_filter.py`, `calibrated_or.py`, `cleaned_leaderboard.py`.
 
 ## Reproduce
 

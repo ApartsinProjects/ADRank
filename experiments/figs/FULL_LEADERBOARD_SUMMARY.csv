@@ -1,0 +1,12 @@
+method,micro,macro
+NoMaS matched (ours),0.1341,0.1468
+NoMaS beta=1 (ours),0.1415,0.1605
+best_fixed LOF_k20 (cheats),0.2233,0.2299
+EM,0.1948,0.1917
+MV,0.1876,0.1846
+beta=-4 extreme,0.1803,0.1837
+consensus/UDR,0.2793,0.2612
+ModelCentrality,0.2779,0.26
+HITS,0.2762,0.259
+iforest_random,0.2781,0.2579
+random,0.2712,0.2668
