@@ -180,8 +180,27 @@ over = M[M.base_rate > MAX_TEST_RATE + 1e-6]
 if len(over):
     print(f"  [rate net] dropping {len(over)} dataset(s) over base_rate {MAX_TEST_RATE}: "
           f"{dict(zip(over.dataset, over.base_rate.round(3)))}")
+# PER-DATASET TRIVIALITY-RULE FILTER (tabular): the max|z| anomaly filter is per-datapoint and
+# misses datasets whose survivors are still separable by a simple per-feature rule. Drop tabular
+# datasets where the max|z| rule OR the HBOS-lite histogram rule reaches test AUC > TRIV_RULE_CUT
+# (run hadb_trivial_rules.py first). Histogram catches the skewed/bimodal/categorical rarity the
+# Gaussian max|z| misses. Time series keep the Wu-Keogh one-liner criterion (already per-series).
+TRIV_RULE_CUT = 0.85
+tr_path = os.path.join(S, "HADB_TRIVIAL_RULES.csv")
+if os.path.exists(tr_path):
+    TR = pd.read_csv(tr_path)
+    TR["rule_auc"] = TR[["mz_rule_auc", "hbos_rule_auc"]].max(1)
+    M = M.merge(TR[["dataset", "corpus", "mz_rule_auc", "hbos_rule_auc", "rule_auc"]],
+                on=["dataset", "corpus"], how="left")
+    M["rule_trivial"] = (M.modality == "tabular") & (M.rule_auc > TRIV_RULE_CUT)
+    print(f"  [triviality-rule net] {int(M.rule_trivial.sum())} tabular datasets solvable by a "
+          f"simple marginal rule (AUC>{TRIV_RULE_CUT}) will be excluded")
+else:
+    print("  [triviality-rule net] HADB_TRIVIAL_RULES.csv not found - run hadb_trivial_rules.py; "
+          "skipping the per-dataset rule filter")
+    M["rule_trivial"] = False
 M["include"] = ((M.zone == "live") & (M.spread_ap_norm >= MIN_SPREAD)
-                & (M.base_rate <= MAX_TEST_RATE + 1e-6))
+                & (M.base_rate <= MAX_TEST_RATE + 1e-6) & ~M.rule_trivial)
 M.to_csv(OUT, index=False)
 
 inc = M[M.include]
