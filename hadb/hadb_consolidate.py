@@ -186,18 +186,26 @@ if len(over):
 # (run hadb_trivial_rules.py first). Histogram catches the skewed/bimodal/categorical rarity the
 # Gaussian max|z| misses. Time series keep the Wu-Keogh one-liner criterion (already per-series).
 TRIV_RULE_CUT = 0.85
-tr_path = os.path.join(S, "HADB_TRIVIAL_RULES.csv")
-if os.path.exists(tr_path):
-    TR = pd.read_csv(tr_path)
+# Combine the tabular (feature) and time-series (window-feature) rule audits. Both check whether
+# a dataset's surviving hard anomalies are still separable by a simple per-feature rule - max|z|
+# (Gaussian) OR HBOS-lite (empirical histogram) - at test AUC > cut, in the space the DETECTORS
+# use. Tabular: hadb_trivial_rules.py; time series (uni + multivariate): ts_trivial_rules.py.
+frames = []
+for pth in ("HADB_TRIVIAL_RULES.csv", "HADB_TS_TRIVIAL_RULES.csv"):
+    fp = os.path.join(S, pth)
+    if os.path.exists(fp):
+        frames.append(pd.read_csv(fp)[["dataset", "corpus", "mz_rule_auc", "hbos_rule_auc"]])
+if frames:
+    TR = pd.concat(frames, ignore_index=True)
     TR["rule_auc"] = TR[["mz_rule_auc", "hbos_rule_auc"]].max(1)
-    M = M.merge(TR[["dataset", "corpus", "mz_rule_auc", "hbos_rule_auc", "rule_auc"]],
-                on=["dataset", "corpus"], how="left")
-    M["rule_trivial"] = (M.modality == "tabular") & (M.rule_auc > TRIV_RULE_CUT)
-    print(f"  [triviality-rule net] {int(M.rule_trivial.sum())} tabular datasets solvable by a "
-          f"simple marginal rule (AUC>{TRIV_RULE_CUT}) will be excluded")
+    M = M.merge(TR, on=["dataset", "corpus"], how="left")
+    M["rule_trivial"] = M.rule_auc > TRIV_RULE_CUT           # applies to ALL modalities now
+    print(f"  [triviality-rule net] {int(M.rule_trivial.sum())} datasets solvable by a simple "
+          f"per-feature rule (AUC>{TRIV_RULE_CUT}) will be excluded "
+          f"({dict(M[M.rule_trivial.fillna(False)].modality.value_counts())})")
 else:
-    print("  [triviality-rule net] HADB_TRIVIAL_RULES.csv not found - run hadb_trivial_rules.py; "
-          "skipping the per-dataset rule filter")
+    print("  [triviality-rule net] rule-audit CSVs not found - run hadb_trivial_rules.py + "
+          "ts_trivial_rules.py; skipping the per-dataset rule filter")
     M["rule_trivial"] = False
 M["include"] = ((M.zone == "live") & (M.spread_ap_norm >= MIN_SPREAD)
                 & (M.base_rate <= MAX_TEST_RATE + 1e-6) & ~M.rule_trivial)

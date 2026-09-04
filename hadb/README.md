@@ -4,12 +4,12 @@ A benchmark for **label-free selection of anomaly detectors** where trivial anom
 low-spread datasets are filtered out, leaving only datasets on which choosing the right
 detector, without labels, genuinely matters.
 
-## Composition (three-way, leak-free build; both triviality filters, 2026-09-04)
+## Composition (three-way, leak-free build; per-dataset rule filter all modalities, 2026-09-04)
 
-- **223 datasets**, effective N = 221 after dedup; two modalities.
-- Tabular 116 (adbench+dami, OddBench, OvrBench) + time series 107 (TSB-AD-U, UCR, TSB-AD-M).
-- True-best family: 150 local / 61 global / 12 other (global-vs-local selection preserved).
-- (An earlier build had 292 datasets before the per-dataset triviality-rule filter below.)
+- **199 datasets**, effective N = 197 after dedup; two modalities.
+- Tabular 116 (adbench+dami, OddBench, OvrBench) + time series 83 (TSB-AD-U, UCR, TSB-AD-M).
+- True-best family: 136 local / 52 global / 11 other (global-vs-local selection preserved).
+- (Earlier builds: 292 before the per-dataset triviality-rule filter; 223 when it was tabular-only.)
 - Protocol: normals split 60/20/20 **train / validation / test**, disjoint in raw points
   (time series: contiguous-block split + overlap purge). Detectors fit on TRAIN; label-free
   selectors compute their criterion on VALIDATION (normals only); ground-truth AUC/AP/ap_norm
@@ -18,11 +18,14 @@ detector, without labels, genuinely matters.
 - Filters: Wu & Keogh one-liner triviality (time series, permutation-calibrated for
   multivariate), max|z| + LinRes double-hard triviality (tabular, per-anomaly), base-rate cap
   0.25, mixed-label duplicate removal, floor (best < 0.10) and low-spread (< 0.10) exclusion,
-  and a **per-dataset triviality-rule filter** (`hadb_trivial_rules.py`): drop tabular datasets
-  whose surviving hard anomalies are still separable by a simple per-feature rule - max|z|
-  (Gaussian) OR HBOS-lite (empirical histogram, catches skewed/bimodal/categorical rarity the
-  Gaussian misses) - at test AUC > 0.85. This closes a gap where the per-anomaly max|z| filter
-  let through datasets the max|z| RULE still solves (e.g. NetworkFlow, AUC 0.98).
+  and a **per-dataset triviality-rule filter** across ALL modalities: drop datasets whose
+  surviving hard anomalies are still separable by a simple per-feature rule - max|z| (Gaussian)
+  OR HBOS-lite (empirical histogram, catches skewed/bimodal/categorical rarity the Gaussian
+  misses) - at test AUC > 0.85, computed in the space the detectors use. Tabular:
+  `hadb_trivial_rules.py`. Time series (uni + multivariate, on window features):
+  `ts_trivial_rules.py`. This closes a gap where the per-anomaly / raw-signal filters let
+  through datasets a simple RULE still solves in feature space (NetworkFlow max|z| AUC 0.98;
+  several OPPORTUNITY series 0.98-1.00). 97 datasets removed (73 tabular + 24 TS).
 
 ## Layout
 
