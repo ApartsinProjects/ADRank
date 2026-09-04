@@ -1,9 +1,22 @@
-# Streamlined HADB construction (side project, isolated)
+# Streamlined HADB construction (ADOPTED as the primary benchmark, 2026-09-04)
 
 **Date:** 2026-09-04. A single, principled, detector-free pipeline that rebuilds the benchmark FROM
 SOURCE, replacing the accumulated ad-hoc filters (max|z|, Wu-Keogh, per-dataset rule, low-spread) of
-the canonical build. **This is an alternative construction; the canonical 199-dataset benchmark and its
-results are untouched.** All code + result CSVs live in `experiments/streamline/`.
+the earlier build. **DECISION (2026-09-04): this streamlined 176-dataset benchmark is ADOPTED as the
+paper's PRIMARY benchmark.** The earlier 199-dataset build is retained as the prior/robustness version
+(the headline - NoMaS beats the UOMS field incl. EM/MV/IFOREST-R - reproduces on both, so the result is
+not a filtering artifact). All code + result CSVs live in `experiments/streamline/`.
+
+## Migration checklist (to finish promoting streamlined -> primary)
+- [x] Selection pipeline + final set (`STREAM_FINAL2_SET.csv`, 176 datasets)
+- [x] Full EDA (`STREAM_EDA2_ALL.csv`): sizes, diversity, marginal+joint multimodality, solvability, family
+- [x] Selector leaderboard + all UOMS baselines incl. faithful IFOREST-R and UDR (`STREAM_RANK/IFR/UDR.csv`)
+- [x] Pseudo-anomaly control (fails -> the win is OOD synthesis)
+- [ ] Save per-detector ground-truth ap_norm on the hardened test as a canonical results CSV (rank.py
+      currently keeps regrets only; regenerate a per-variant table for full reproducibility)
+- [ ] Regenerate paper tables/figures from the streamlined numbers (the canonical FIG_leaderboard etc.
+      become the prior-version appendix); primary leaderboard fig = `experiments/figs/FIG_stream_leaderboard.png`
+- [ ] Zenodo/data-availability: package `STREAM_FINAL2_SET` + `STREAM_EDA2_ALL` as the released benchmark
 
 ## Pipeline (5 stages, all feature-space, no detector fitting)
 
