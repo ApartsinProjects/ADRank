@@ -7,12 +7,23 @@ The decisive metric throughout is the **within-dataset Spearman correlation** be
 selector's score and the true test ap_norm - regret alone repeatedly gave false positives on
 small samples and is reported only alongside the correlation.
 
-## Headline
+## Headline (UPDATED 2026-09-04 after a bug-hunt + benchmark re-filter)
 
-On hard anomalies in the strict normals-only setting, **EM (Excess-Mass, Goix 2016) is the best
-label-free selector, and nothing we built beats it significantly.** This reverses Ma et al.
-(SIGKDD Explorations 2023), where consensus methods won and EM/MV did not. The reversal is
-mechanistic and verified, not incidental.
+The picture changed materially. See the "Bug-hunt corrections" section below.
+
+- On the FIRST (292-dataset) benchmark, **EM (Excess-Mass, Goix 2016) was the best label-free
+  selector and nothing beat it** - this reverses Ma et al. 2023 (consensus won, EM/MV did not).
+- But two things were wrong: (a) the synthetic-anomaly selector was fitting detectors on the
+  wrong data (validation subset, not train), handicapping it; (b) 57 tabular datasets (18-31%)
+  were still solvable by the max|z| triviality RULE and should have been filtered.
+- **On the CLEANED benchmark (235 datasets, max|z|-trivial removed) with the corrected
+  protocol, feature-shuffle SYNTHETIC beats EM overall** (regret 0.146 vs 0.211) and DOMINATES
+  local-best datasets (0.045 vs 0.196, wins 22/37). EM's apparent overall win was partly
+  inflated by near-trivial global datasets. Synthetic's one remaining blind spot is global-best
+  datasets, for a precise structural reason (below).
+
+The rest of this document records the original comparison and the mechanisms; the bug-hunt
+section at the end supersedes the original headline.
 
 ## The selector comparison (leak-free, 292 datasets, `HADB_SELECTORS_V2.csv`)
 
@@ -125,10 +136,97 @@ detectors need both.**
   supported by the benchmark. Wins-only discipline governed the NoMaS method paper; a benchmark
   paper reports what it finds.
 
+---
+
+# Bug-hunt corrections (2026-09-04) - these supersede the original headline
+
+The user pushed to verify the negative synthetic result. The hunt found two real bugs and a
+benchmark-filter gap, and the corrected result flips the headline.
+
+## Correction 1: synthetic was fit on the wrong data (protocol bug)
+
+The dev synthetic experiments fit detectors on 70% of the VALIDATION set (~14% of normals),
+while the ground truth and EM use detectors fit on TRAIN (60%). So synthetic ranked
+differently-fit detectors than the ones the ground truth measures. Fixing it (fit on TRAIN,
+score validation-normals vs synth) lifted within-dataset rho from +0.27 to +0.30. Validated
+against `hadb_round2_common._fit_score` (ground truth: fit Xtr, score Xte) and the EM path
+(fit Xtr, score Xval). Scripts: `corrected_synth.py`.
+
+## Correction 2: NoMaS itself violates the protocol
+
+`nomas_scores` (hadb_round2_common line 62) re-fits detectors on validation subsets
+(`m.fit(Xval[sub.train_idx])`), not the train-fit detector EM ranks. So in the benchmark
+comparison NoMaS ranked differently-fit detectors than EM did - inconsistent, and it
+contributed to NoMaS's poor showing. It is partly architectural (cluster-holdout inherently
+re-fits), so it cannot simply use the train-fit detector; noted as a limitation.
+
+## Correction 3: the triviality filter missed a per-dataset check (benchmark re-filter)
+
+The max|z| triviality filter is per-DATAPOINT (drop anomalies above the 99th-pct max|z| cut).
+It never checked whether the max|z| RULE still separates the SURVIVORS of a dataset. Audit
+(`trivial_refilter.py`): the max|z|-rule test AUC over 185 included tabular datasets has median
+0.71 but **29 datasets > 0.90 and 55 > 0.80** - near-trivial by the simple rule (NetworkFlow
+0.98, MouseInteractionPhase 0.99, ...). Re-filtering at max|z|-rule AUC > 0.85 drops **57
+tabular datasets** (24 of them global-best), leaving **235 (128 tabular + 107 TS)** ->
+`HADB_MANIFEST_REFILTERED.csv` (`include_v2`). HBOS is a real pool detector, so HBOS-solvable
+but max|z|-hard datasets (Orbital, UserEvent) are KEPT - they are legitimate global-vs-local
+selection datasets.
+
+## The corrected result: synthetic beats EM on the cleaned benchmark
+
+Corrected protocol, cleaned benchmark, sample of 60 datasets (`cleaned_synth_vs_em.py`):
+
+| | regret | within-dataset rho |
+|---|---|---|
+| **feature-shuffle synthetic** | **0.146** | +0.31 |
+| EM | 0.211 | +0.13 |
+
+paired Wilcoxon p=0.28 (high variance), but the family split is decisive:
+
+| true-best family | synth regret | EM regret | synth wins |
+|---|---|---|---|
+| **local (n=37)** | **0.045** | 0.196 | **22/37** |
+| global (n=19) | 0.300 | 0.248 | 6/19 |
+| other (n=4) | 0.351 | 0.177 | 1/4 |
+
+**Synthetic dominates local-best datasets and loses only on global-best ones.**
+
+## Why synthetic still loses on global datasets - a structural limit (verified)
+
+- **Local vs global, mechanistically** (`global_anom_geom.py`, best-config `example_local_vs_global`):
+  a GLOBAL-win anomaly is **extreme in a single feature** (per-feature histogram/CDF rarity);
+  a LOCAL-win anomaly is anomalous only in the **multivariate combination** (no single feature
+  extreme, median 0 features with |z|>2.5 vs 0.5 for global). On global datasets even the BEST
+  local config loses at EVERY threshold (NetworkFlow: best local AUC 0.71 vs HBOS 1.00;
+  recall@10%FPR 0.28 vs 1.00) - not a threshold/k issue, a ranking failure.
+- **Failure mode = FALSE NEGATIVES** (`fn_fp_diag.py`): on synth-loses datasets the synthetic-
+  picked detector's recall@10%FPR is 0.31 vs EM's 0.62 - it MISSES the real anomalies, does not
+  over-flag normals.
+- **The structural limit** (`real_vs_synth` on global datasets): shuffling copies real normal
+  values, so no single feature can exceed the observed range -> synthetic max|z| caps at ~1.45
+  vs real 2.02. Shuffle can make the multivariate-broken part of an anomaly but NOT the
+  single-feature-extreme part. So on global-best datasets it selects a local detector that then
+  misses the marginally-extreme real anomalies.
+
+## Histogram vs Gaussian triviality - analysis + open design fork
+
+The max|z| filter assumes GAUSSIAN marginals. Analysis (`hist_vs_z`): 59% of features here are
+skewed (|skew|>1) or bimodal (BC>0.55); on such features a value in the skewed tail or a
+bimodal gap is empirically rare (histogram-detectable) but z-moderate - z-filtering misses it
+(visualizing_soil 47% of anomalies, Orbital 27%). A histogram-based filter would be more
+principled BUT it would remove exactly the anomalies HBOS catches -> remove the global-win
+datasets -> collapse the local-vs-global selection challenge into a local-only benchmark.
+This is a genuine fork in the benchmark's identity, left open:
+- keep max|z| triviality (+ the per-dataset re-filter) -> local-vs-global selection benchmark,
+  EM's family-agnosticism is the finding;
+- switch to histogram triviality -> multivariate-hard-only benchmark, synthetic/local wins,
+  but no local-vs-global story.
+
 ## Reproduce
 
 Code in `hadb/`, results in `hadb/results/`. Corpora re-fetched with `hadb/fetch_*.py`
-(gitignored; UCR is unlicensed - do not redistribute). Pipeline: build arms -> `hadb_consolidate.py`
--> `hadb_selectors_v2.py` / `hadb_deep_review.py`. Method investigation: `dev_common.py` +
-`edge_dev.py` / `synth_dev.py` / `shuffle_grid.py` / `fresh_holdout.py` / `real_vs_synth.py` /
-`two_mode_holdout.py`.
+(gitignored; UCR is unlicensed - do not redistribute). Original pipeline: build arms ->
+`hadb_consolidate.py` -> `hadb_selectors_v2.py`. Bug-hunt: `corrected_synth.py`,
+`trivial_refilter.py` (-> `HADB_MANIFEST_REFILTERED.csv`), `cleaned_synth_vs_em.py`,
+`em_wins_diag.py`, `fn_fp_diag.py`, `global_anom_geom.py`, `real_vs_synth.py`,
+`within_family_synth.py`. Shared reconstruction: `dev_common.py`.
