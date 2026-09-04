@@ -270,9 +270,66 @@ Spearman of each descriptor with the (best-local - best-global) ap_norm family a
   ap=0.99 invisible to every probe). The residual failures are synthetic-vs-real fidelity, which
   no router fixes.
 
-Scratch scripts (in session scratchpad, not committed): `router_confirm.py`, `multimodality_test.py`,
-`measure_locality.py`, `matched_selector.py` (-> `MATCHED_SELECTOR.csv`), `compute_modality_perf.py`
-(-> `MODALITY_PERF.csv`), `inspect_datasets.py`, `viz_modality2.py`, `make_scatter_panels.py`.
+### EM's systematic mis-ranking (detector-independent dataset metric; `em_systematic_failure.py`)
+Per (dataset, detector) `em_err = pct_rank(EM) - pct_rank(true ap_norm)` (>0 = EM over-rates). Marginal
+over 162 datasets (5029 obs), the error is ZERO-SUM and structured: EM **over-rates IForest/LODA by
++0.153** (p=1e-36) and **under-rates local detectors by -0.050** (p=3e-13); global unbiased on average.
+Conditioned on the normals-only multimodality metric: on MULTIMODAL datasets EM over-rates IForest/LODA
+(+0.173) and under-rates the local detectors that actually win (-0.032) -> it picks IForest instead of
+the correct local detector. This is a mechanism-level indictment of EM independent of our method
+(EM's excess-mass criterion rewards IForest/LODA's globally-concentrated scores). Fig `FIG_em_systematic.png`.
+
+### Normal-shape -> anomaly-location -> family chain (`shape_anomaly_relation.py`)
+Directionally correct but WEAK at every link: multimodal train normals -> anomalies in local voids
+(iso rho +0.20) and less marginal (marg rho -0.13 to +0.10); marginal-edge -> global wins (AUC 0.57);
+local-void -> local wins (AUC 0.53). Every link AUC 0.53-0.57, so the end-to-end geometric prediction
+is weak (rho ~0.15) - which is WHY no static geometric statistic routes and the measured probe (local_ev
+0.795) is needed. Measuring modality on TRAIN vs VAL barely differs (+0.155 vs +0.129).
+
+### Why EM beats the extreme probe on GLOBAL datasets (`global_why_em.py`, 56 global sets)
+NOT a fidelity gap: beta=-4 synthetics reach 99% of real extremeness (max|z| 2.45 vs 2.48, both single-
+feature). The problem is NON-DISCRIMINATION: within the global family beta=-4 separation ranks detectors
+at rho +0.037 (EM +0.075) - both ~0. A single-feature marginal extreme is separated ~equally by every
+global detector, so it carries no signal about which one generalizes. EM wins by 0.025 not by ranking
+better (a4 ranks the full pool better) but by a steadier top pick. "EM wins on global" = "both fail, EM
+fails less."
+
+### Generator design-space sweep - EVERY knob beyond beta tested, all negative
+The generator has knobs: beta (extremeness), frac (# features), bins (marginal resolution), cap, base/feature
+policy. Results:
+- **frac (beta x n_features grid, `grid_beta_frac.py`):** maps anomaly type cleanly (local AUC climbs with
+  feature-count, local-vs-global gap peaks at beta=1 + ~0.5d features = +0.24) but NO ranking gain
+  (rho flat ~0.35 everywhere) and does NOT discriminate global (within-global rho +0.12 best).
+- **elbow-beta (`elbow_analysis.py`):** the beta where a detector flips hard->easy does NOT characterize
+  family (AUC 0.47, below chance) - it tracks the hyperparameter (k), not local/global. Max-discrimination
+  beta is at the HARD end (+2) on every dataset, confirming the informative probe is hard/multivariate.
+- **bins (`bins_test.py`):** finer bins DO target interior multimodal gaps (interior frac 0.66->0.76) and
+  improve within-global rho +0.03->+0.10 at beta=-4, BUT hurt overall ranking (+0.199->+0.110). Net not a fix.
+- **ensembles (`ensemble_test.py`):** MEAN ensembles significantly worse (dilution; neutral 0.237 vs best-
+  individual 0.449 ap_norm); MAX/union ensemble only TIES beta=1 selection (p=0.96). On hard anomalies the
+  families are anti-correlated, so combination underperforms selection.
+CONCLUSION: ranking the GLOBAL family label-free is a fundamental limit, not a knob-tuning problem. beta=1
+(local/multivariate probe) is the method; the global residual resists the entire generator design space and EM alike.
+
+### Leaderboard (162 datasets, construct-matched; `leaderboard.py` -> `LEADERBOARD.csv`, `FIG_leaderboard.png`)
+Regret on ap_norm (micro | macro=family-balanced):
+- oracle 0.000 | 0.000
+- **NoMaS matched-router (ours) 0.138 | 0.153** (vs EM p=0.002)
+- best-fixed LOF_k20 (label-cheating) 0.118 | 0.165
+- **NoMaS beta=1 (ours) 0.143 | 0.163** (vs EM p=0.022)
+- beta=-4 extreme 0.185 | 0.190
+- EM 0.196 | 0.193
+- random 0.271 | 0.267
+Both our methods beat EM significantly; matched-router is the best deployable method under the family-fair
+macro. best-fixed LOF_k20 edges micro but cheats (uses benchmark to pick the global-best detector) and
+loses on macro. CAVEAT / OPEN: MV/consensus/ModelCentrality/HITS are only from the earlier 292-set run
+(MV 0.220, agreement ~0.278=random), NOT construct-matched on this 162-subset; UDR and a proper IFOREST-R
+are still pending. A complete construct-matched leaderboard with all UOMS baselines is the remaining task.
+
+Scratch scripts (session scratchpad, not committed): `router_confirm.py`, `multimodality_test.py`,
+`measure_locality.py`, `matched_selector.py`, `compute_modality_perf.py`, `inspect_datasets.py`,
+`viz_modality2.py`, `make_scatter_panels.py`, `em_systematic_failure.py`, `shape_anomaly_relation.py`,
+`global_why_em.py`, `elbow_analysis.py`, `grid_beta_frac.py`, `bins_test.py`, `ensemble_test.py`, `leaderboard.py`.
 
 ## Reproduce
 
