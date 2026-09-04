@@ -57,6 +57,29 @@ EDA profile (`STREAM_EDA2_ALL.csv`, 176 datasets, all stats co-computed):
 - **Dropped-but-embedded** anomalies were dropped for FEW-DISTINCT (n_eff<100), a count issue, not
   easiness (56/82 few-distinct drops are embedded/hard with frac_triv<0.3).
 
+## Selector leaderboard + faithful UOMS baselines (streamlined benchmark, 175 datasets)
+
+Construct-matched on the two-stage hardened test (`rank.py`, `ifr.py`, `udr.py`; regret on ap_norm,
+macro = family-balanced):
+- **NoMaS matched (ours) 0.149**, MV 0.148, **NoMaS beta=1 (ours) 0.151**, EM 0.159 - all beat random.
+- **UDR 0.216** (seed-stability on the iForest sub-pool) - NOT significantly different from random
+  (p=0.27), exactly Ma et al's finding. **IFOREST-R 0.218** (faithful 81-config average, n_estimators x
+  max_features). consensus/ModelCentrality/HITS 0.222-0.225. random 0.228.
+- **Our methods beat IFOREST-R and UDR at p<0.001** (matched beats IFOREST-R on 113/175 datasets).
+This COUNTERS Ma et al ("none significantly different from random model selection ... all significantly
+worse than random-config iForest"): on a hard-anomaly, local-vs-global benchmark with a diverse pool,
+selection genuinely beats the iForest bar. UDR is ill-defined on the full mixed pool (deterministic
+detectors LOF/KNN/HBOS/COPOD/ECOD/PCA have perfect seed-stability), so it is run faithfully on the
+stochastic iForest sub-pool only.
+
+**Pseudo-anomaly selection retried (`pseudo_cluster.py`) - fails again, confirming the mechanism.**
+On the streamlined (strongly cluster-structured: 12 GMM modes) benchmark: smallest-cluster pseudo-
+anomalies within-dataset rho -0.06 (no signal), EDGE pseudo-anomalies rho -0.20 (ANTI-correlated,
+regret 0.233 > random), vs beta=1 synthetic rho +0.284 (regret 0.143). Holding out IN-distribution
+normal points measures normal-structure separation, not anomaly detection - even on cluster-structured
+data. The win is specifically OUT-OF-distribution synthesis, not any anomaly proxy. Result CSVs:
+STREAM_RANK/IFR/UDR/PSEUDO.csv.
+
 ## Reproduce
 
 `experiments/streamline/pipeline_final.py` (definitive selection) -> `STREAM_FINAL2_{ALL,SET}.csv`;
